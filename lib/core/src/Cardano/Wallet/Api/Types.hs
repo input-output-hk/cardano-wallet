@@ -66,11 +66,15 @@ module Cardano.Wallet.Api.Types
     , ApiSelectCoinsPayments (..)
     , ApiSelectCoinsAction (..)
     , ApiCoinSelection (..)
+    , ApiMintBurnOperation (..)
+    , ApiMintData(..)
+    , ApiBurnData(..)
     , ApiCoinSelectionChange (..)
     , ApiCoinSelectionInput (..)
     , ApiCoinSelectionOutput (..)
     , ApiCoinSelectionWithdrawal (..)
     , ApiBase64
+    , ApiMintBurnData (..)
     , ApiStakePool (..)
     , ApiStakePoolMetrics (..)
     , ApiStakePoolFlag (..)
@@ -93,6 +97,7 @@ module Cardano.Wallet.Api.Types
     , ApiSerialisedTransaction (..)
     , ApiSignedTransaction (..)
     , ApiTransaction (..)
+    , ApiMintBurnTransaction (..)
     , ApiWithdrawalPostData (..)
     , ApiMaintenanceAction (..)
     , ApiMaintenanceActionPostData (..)
@@ -150,6 +155,7 @@ module Cardano.Wallet.Api.Types
     , ApiPaymentDestination (..)
     , ApiValidityInterval (..)
     , ApiValidityBound
+    , PostMintBurnAssetData(..)
 
     -- * API Types (Byron)
     , ApiByronWallet (..)
@@ -200,8 +206,10 @@ module Cardano.Wallet.Api.Types
     , ApiConstructTransactionDataT
     , PostTransactionOldDataT
     , PostTransactionFeeOldDataT
+    , ApiMintBurnTransactionT
     , ApiWalletMigrationPlanPostDataT
     , ApiWalletMigrationPostDataT
+    , PostMintBurnAssetDataT
 
     -- * API Type Conversions
     , coinToQuantity
@@ -1025,6 +1033,24 @@ data ApiTransaction (n :: NetworkDiscriminant) = ApiTransaction
     , metadata :: !ApiTxMetadata
     } deriving (Eq, Generic, Show)
       deriving anyclass NFData
+
+-- | The response cardano-wallet returns upon successful submission of a
+-- mint/burn transaction.
+data ApiMintBurnTransaction (n :: NetworkDiscriminant) = ApiMintBurnTransaction
+    { transaction         :: !(ApiTransaction n)
+    -- ^ Information about the mint/burn transaction.
+    , monetaryPolicyIndex :: !(ApiT DerivationIndex)
+    -- ^ The monetary policy index the asset was minted/burnt under.
+    , policyId            :: !(ApiT W.TokenPolicyId)
+    -- ^ The policy ID the asset was minted/burnt under.
+    , assetName           :: !(ApiT W.TokenName)
+    -- ^ The name of the asset minted/burnt.
+    , subject             :: !(ApiT W.TokenFingerprint)
+    -- ^ The subject of the asset minted/burnt. This is useful to users wishing
+    -- to attach metadata to their asset.
+    }
+    deriving (Eq, Generic, Show)
+    deriving anyclass NFData
 
 newtype ApiTxMetadata = ApiTxMetadata
     { getApiTxMetadata :: Maybe (ApiT TxMetadata)
@@ -2551,6 +2577,18 @@ instance (DecodeAddress t, DecodeStakeAddress t) => FromJSON (ApiConstructTransa
 instance (EncodeAddress t, EncodeStakeAddress t) => ToJSON (ApiConstructTransaction t) where
     toJSON = genericToJSON defaultRecordTypeOptions
 
+instance
+    ( DecodeAddress n
+    , DecodeStakeAddress n
+    ) => FromJSON (ApiMintBurnTransaction n) where
+    parseJSON = genericParseJSON defaultRecordTypeOptions
+
+instance
+    ( EncodeAddress n
+    , EncodeStakeAddress n
+    ) => ToJSON (ApiMintBurnTransaction n) where
+    toJSON = genericToJSON defaultRecordTypeOptions
+
 instance FromJSON ApiWithdrawalPostData where
     parseJSON obj =
         parseSelfWithdrawal <|> fmap ExternalWithdrawal (parseJSON obj)
@@ -3250,6 +3288,8 @@ type family ApiConstructTransactionT (n :: k) :: Type
 type family ApiConstructTransactionDataT (n :: k) :: Type
 type family PostTransactionOldDataT (n :: k) :: Type
 type family PostTransactionFeeOldDataT (n :: k) :: Type
+type family ApiMintBurnTransactionT (n :: k) :: Type
+type family PostMintBurnAssetDataT (n :: k) :: Type
 type family ApiWalletMigrationPlanPostDataT (n :: k) :: Type
 type family ApiWalletMigrationPostDataT (n :: k1) (s :: k2) :: Type
 type family ApiPutAddressesDataT (n :: k) :: Type
@@ -3286,11 +3326,17 @@ type instance PostTransactionOldDataT (n :: NetworkDiscriminant) =
 type instance PostTransactionFeeOldDataT (n :: NetworkDiscriminant) =
     PostTransactionFeeOldData n
 
+type instance PostMintBurnAssetDataT (n :: NetworkDiscriminant) =
+    PostMintBurnAssetData n
+
 type instance ApiWalletMigrationPlanPostDataT (n :: NetworkDiscriminant) =
     ApiWalletMigrationPlanPostData n
 
 type instance ApiWalletMigrationPostDataT (n :: NetworkDiscriminant) (s :: Symbol) =
     ApiWalletMigrationPostData n s
+
+type instance ApiMintBurnTransactionT (n :: NetworkDiscriminant) =
+    ApiMintBurnTransaction n
 
 {-------------------------------------------------------------------------------
                          SMASH interfacing types
@@ -3334,3 +3380,114 @@ instance FromJSON (ApiT SmashServer) where
     parseJSON = fromTextJSON "SmashServer"
 instance ToJSON (ApiT SmashServer) where
     toJSON = toTextJSON
+
+{-------------------------------------------------------------------------------
+                         Token minting types
+-------------------------------------------------------------------------------}
+
+-- | Data required when submitting a mint/burn transaction. Cardano implements
+-- minting and burning using transactions, so some of these fields are shared
+-- with @PostTransactionData@.
+data PostMintBurnAssetData (n :: NetworkDiscriminant) = PostMintBurnAssetData
+    { mintBurn   :: !(ApiMintBurnData n)
+    -- ^ Minting and burning request.
+    , passphrase :: !(ApiT (Passphrase "lenient"))
+    -- ^ Passphrase of the wallet.
+    , metadata   :: !(Maybe (ApiT TxMetadata))
+    -- ^ Metadata to attach to the transaction that mints/burns.
+    , timeToLive :: !(Maybe (Quantity "second" NominalDiffTime))
+    -- ^ Time the created mint/burn transaction is valid until.
+    } deriving (Eq, Generic, Show)
+
+instance DecodeAddress n => FromJSON (PostMintBurnAssetData n) where
+    parseJSON = genericParseJSON defaultRecordTypeOptions
+
+instance EncodeAddress n => ToJSON (PostMintBurnAssetData n) where
+    toJSON = genericToJSON defaultRecordTypeOptions
+
+-- | Core minting and burning request information.
+--
+-- Assets are minted and burned under a "policy". The policy defines under what
+-- circumstances a token may be minted and burned. The typical policy is "A
+-- token may be minted and burned if signature 's' witnesses the transaction,
+-- for some signature 's'". This is the only type of policy supported by the
+-- cardano-wallet API at the moment. Because cardano-wallet manages the keys of
+-- the user, we ask the user not for a specific signature, but rather for a key
+-- derivation index, which we use to derive the signature to construct the
+-- policy with.
+data ApiMintBurnData (n :: NetworkDiscriminant) = ApiMintBurnData
+    { monetaryPolicyIndex :: !(Maybe (ApiT DerivationIndex))
+    -- ^ The key derivation index to use to construct the policy.
+    , assetName           :: !(ApiT W.TokenName)
+    -- ^ The name of the asset to mint/burn.
+    , operations          :: !(NonEmpty (ApiMintBurnOperation n))
+    -- ^ The set of minting and burning operations to perform.
+    } deriving (Eq, Generic, Show)
+
+instance DecodeAddress n => FromJSON (ApiMintBurnData n) where
+    parseJSON = genericParseJSON defaultRecordTypeOptions
+
+instance EncodeAddress n => ToJSON (ApiMintBurnData n) where
+    toJSON = genericToJSON defaultRecordTypeOptions
+
+-- | A user may choose to either mint tokens or burn tokens with each operation.
+data ApiMintBurnOperation (n :: NetworkDiscriminant)
+    = ApiMint (ApiMintData n)
+    -- ^ Mint tokens.
+    | ApiBurn ApiBurnData
+    -- ^ Burn tokens.
+    deriving (Eq, Generic, Show)
+
+-- | The format of a minting request: mint "amount" and send it to the
+-- "address".
+data ApiMintData (n :: NetworkDiscriminant) = ApiMintData
+    { receivingAddress :: (ApiT Address, Proxy n)
+    -- ^ Address that receives the minted assets.
+    , amount           :: Quantity "assets" Natural
+    -- ^ Amount of assets to mint.
+    }
+    deriving (Eq, Generic, Show)
+
+instance DecodeAddress n => FromJSON (ApiMintData n) where
+    parseJSON = genericParseJSON defaultRecordTypeOptions
+
+instance EncodeAddress n => ToJSON (ApiMintData n) where
+    toJSON = genericToJSON defaultRecordTypeOptions
+
+-- | The format of a burn request: burn "amount". The user can only specify the
+-- type of tokens to burn (policyId, assetName), and the amount, the exact
+-- tokens selected are up to the implementation.
+newtype ApiBurnData = ApiBurnData (Quantity "assets" Natural)
+    deriving (Eq, Generic, Show)
+
+instance FromJSON ApiBurnData where
+    parseJSON = genericParseJSON defaultRecordTypeOptions
+
+instance ToJSON ApiBurnData where
+    toJSON (burn) = genericToJSON defaultRecordTypeOptions burn
+
+instance EncodeAddress n => ToJSON (ApiMintBurnOperation n) where
+    toJSON = \case
+        ApiMint mint ->
+            Aeson.Object $ HM.singleton "mint" (toJSON mint)
+        ApiBurn burn  ->
+            Aeson.Object $ HM.singleton "burn" (toJSON burn)
+
+instance DecodeAddress n => FromJSON (ApiMintBurnOperation n) where
+    parseJSON = Aeson.withObject "ApiMintBurnOperation" $ \o -> do
+        mMints <- o .:? "mint"
+        mBurn  <- o .:? "burn"
+
+        let badKeys = filter (\k -> k /= "mint" && k /= "burn") . HM.keys $ o
+
+        if badKeys /= []
+        then fail $ "Encountered unexpected key(s): " <> show badKeys
+        else case (mMints, mBurn) of
+            (Nothing    , Nothing)     ->
+                fail "Must include a mint or burn operation"
+            (Just mints , Nothing)     ->
+                pure $ ApiMint mints
+            (Nothing    , Just burn)   ->
+                pure $ ApiBurn burn
+            (Just _mints , Just _burn) ->
+                fail "Each operation may either be a mint or a burn, not both"
