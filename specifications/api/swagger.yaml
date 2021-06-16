@@ -4796,7 +4796,7 @@ paths:
 
   /wallets/{walletId}/assets-mint:
     post:
-      operationId: mintBurnToken
+      operationId: mintBurnAssets
       tags: ["Assets"]
       summary: Mint/Burn
       description: |
