@@ -89,7 +89,7 @@ module Cardano.Wallet.Api.Server
     , postSharedWallet
     , patchSharedWallet
     , mkSharedWallet
-    , mintToken
+    , mintBurnAssets
 
     -- * Server error responses
     , IsServerError(..)
@@ -3804,11 +3804,11 @@ instance HasSeverityAnnotation WalletEngineLog where
         MsgWalletWorker msg -> getSeverityAnnotation msg
         MsgSubmitSealedTx msg -> getSeverityAnnotation msg
 
-mintToken
+mintBurnAssets
     :: forall ctx n
      . ctx
     -> ApiT WalletId
     -> Api.PostMintBurnAssetData n
     -> Handler (ApiMintBurnTransaction n)
-mintToken _ctx (ApiT _wid) _body =
-    error "Minting is not supported - this is just a stub"
+mintBurnAssets _ctx (ApiT _wid) _body =
+    error "Minting and burning are not supported - this is just a stub"
