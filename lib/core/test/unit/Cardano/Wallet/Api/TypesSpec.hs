@@ -1,7 +1,9 @@
 {-# LANGUAGE AllowAmbiguousTypes #-}
+{-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE ExistentialQuantification #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
@@ -269,7 +271,7 @@ import Data.Aeson.QQ
 import Data.Char
     ( toLower )
 import Data.Data
-    ( dataTypeConstrs, dataTypeOf, showConstr )
+    ( Typeable, dataTypeConstrs, dataTypeOf, showConstr, typeRep )
 import Data.Either
     ( lefts )
 import Data.FileEmbed
@@ -337,6 +339,7 @@ import Test.QuickCheck
     ( Arbitrary (..)
     , Gen
     , InfiniteList (..)
+    , Property
     , applyArbitrary2
     , applyArbitrary3
     , arbitraryBoundedEnum
@@ -389,6 +392,118 @@ import qualified Data.Yaml as Yaml
 import qualified Prelude
 import qualified Test.Utils.Roundtrip as Utils
 
+type IsApiType a =
+    ( Arbitrary a
+    , FromJSON a
+    , Yaml.ToJSON a
+    , Show a
+    , Typeable a
+    )
+
+data ApiType = forall a. IsApiType a => ApiType (Proxy a)
+
+apiType :: forall a. IsApiType a => ApiType
+apiType = ApiType (Proxy @a)
+
+apiTypes :: [ApiType]
+apiTypes =
+    [ apiType @(AddressAmount (ApiT Address, Proxy ('Testnet 0)))
+    , apiType @(ApiCoinSelection ('Testnet 0))
+    , apiType @(ApiCoinSelectionChange ('Testnet 0))
+    , apiType @(ApiCoinSelectionInput ('Testnet 0))
+    , apiType @(ApiCoinSelectionOutput ('Testnet 0))
+    , apiType @(ApiCoinSelectionWithdrawal ('Testnet 0))
+    , apiType @(ApiForeignStakeKey ('Testnet 0))
+    , apiType @(ApiOurStakeKey ('Testnet 0))
+    , apiType @(ApiPutAddressesData ('Testnet 0))
+    , apiType @(ApiSelectCoinsData ('Testnet 0))
+    , apiType @(ApiStakeKeys ('Testnet 0))
+    , apiType @(ApiT (Hash "Genesis"))
+    , apiType @(ApiT (Hash "Tx"))
+    , apiType @(ApiT (Passphrase "lenient"))
+    , apiType @(ApiT (Passphrase "raw"))
+    , apiType @(ApiT Address, Proxy ('Testnet 0))
+    , apiType @(ApiT AddressPoolGap)
+    , apiType @(ApiT DerivationIndex)
+    , apiType @(ApiT Direction)
+    , apiType @(ApiT StakePoolMetadata)
+    , apiType @(ApiT SyncProgress)
+    , apiType @(ApiT TxMetadata)
+    , apiType @(ApiT TxStatus)
+    , apiType @(ApiT WalletId)
+    , apiType @(ApiT WalletName)
+    , apiType @(ApiTransaction ('Testnet 0))
+    , apiType @(ApiWalletBalance)
+    , apiType @(ApiWalletMigrationPlan ('Testnet 0))
+    , apiType @(ApiWalletMigrationPlanPostData ('Testnet 0))
+    , apiType @(ApiWalletMigrationPostData ('Testnet 0) "lenient")
+    , apiType @(ApiWalletMigrationPostData ('Testnet 0) "raw")
+    , apiType @(PostTransactionData ('Testnet 0))
+    , apiType @(PostTransactionFeeData ('Testnet 0))
+    , apiType @AccountPostData
+    , apiType @AnyAddress
+    , apiType @AnyAddress
+    , apiType @ApiAccountKey
+    , apiType @ApiAccountKeyShared
+    , apiType @ApiActiveSharedWallet
+    , apiType @ApiAddressData
+    , apiType @ApiAddressData
+    , apiType @ApiAsset
+    , apiType @ApiBlockReference
+    , apiType @ApiByronWallet
+    , apiType @ApiByronWalletBalance
+    , apiType @ApiCredential
+    , apiType @ApiCredential
+    , apiType @ApiDelegationAction
+    , apiType @ApiEpochInfo
+    , apiType @ApiEra
+    , apiType @ApiEraInfo
+    , apiType @ApiFee
+    , apiType @ApiHealthCheck
+    , apiType @ApiMaintenanceAction
+    , apiType @ApiMaintenanceActionPostData
+    , apiType @ApiNetworkClock
+    , apiType @ApiNetworkInformation
+    , apiType @ApiNetworkParameters
+    , apiType @ApiNullStakeKey
+    , apiType @ApiPendingSharedWallet
+    , apiType @ApiPostAccountKeyData
+    , apiType @ApiPostAccountKeyDataWithPurpose
+    , apiType @ApiPostRandomAddressData
+    , apiType @ApiRawMetadata
+    , apiType @ApiScriptTemplateEntry
+    , apiType @ApiSharedWallet
+    , apiType @ApiSharedWalletPatchData
+    , apiType @ApiSharedWalletPostData
+    , apiType @ApiSharedWalletPostDataFromAccountPubX
+    , apiType @ApiSharedWalletPostDataFromMnemonics
+    , apiType @ApiSlotReference
+    , apiType @ApiStakePool
+    , apiType @ApiStakePoolMetrics
+    , apiType @ApiStakePoolMetrics
+    , apiType @ApiTxId
+    , apiType @ApiTxMetadata
+    , apiType @ApiUtxoStatistics
+    , apiType @ApiVerificationKeyShared
+    , apiType @ApiVerificationKeyShelley
+    , apiType @ApiWallet
+    , apiType @ApiWalletDelegation
+    , apiType @ApiWalletDelegationNext
+    , apiType @ApiWalletDelegationStatus
+    , apiType @ApiWalletMigrationBalance
+    , apiType @ApiWalletPassphrase
+    , apiType @ApiWalletPassphraseInfo
+    , apiType @ApiWalletUtxoSnapshot
+    , apiType @ByronWalletFromXPrvPostData
+    , apiType @ByronWalletPutPassphraseData
+    , apiType @SettingsPutData
+    , apiType @SomeByronWalletPostData
+    , apiType @WalletOrAccountPostData
+    , apiType @WalletPostData
+    , apiType @WalletPutData
+    , apiType @WalletPutPassphraseData
+    ]
+
 spec :: Spec
 spec = parallel $ do
     let jsonRoundtripAndGolden = Utils.jsonRoundtripAndGolden
@@ -397,98 +512,13 @@ spec = parallel $ do
     parallel $ describe
         "can perform roundtrip JSON serialization & deserialization, \
         \and match existing golden files" $ do
-            jsonRoundtripAndGolden $ Proxy @AnyAddress
-            jsonRoundtripAndGolden $ Proxy @ApiCredential
-            jsonRoundtripAndGolden $ Proxy @ApiAddressData
-            jsonRoundtripAndGolden $ Proxy @(ApiT DerivationIndex)
-            jsonRoundtripAndGolden $ Proxy @ApiPostAccountKeyData
-            jsonRoundtripAndGolden $ Proxy @ApiPostAccountKeyDataWithPurpose
-            jsonRoundtripAndGolden $ Proxy @ApiAccountKey
-            jsonRoundtripAndGolden $ Proxy @ApiAccountKeyShared
-            jsonRoundtripAndGolden $ Proxy @ApiEpochInfo
-            jsonRoundtripAndGolden $ Proxy @(ApiSelectCoinsData ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiCoinSelection ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiCoinSelectionChange ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiCoinSelectionInput ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiCoinSelectionOutput ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiCoinSelectionWithdrawal ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @ApiRawMetadata
-            jsonRoundtripAndGolden $ Proxy @ApiBlockReference
-            jsonRoundtripAndGolden $ Proxy @ApiSlotReference
-            jsonRoundtripAndGolden $ Proxy @ApiDelegationAction
-            jsonRoundtripAndGolden $ Proxy @ApiNetworkInformation
-            jsonRoundtripAndGolden $ Proxy @ApiNetworkParameters
-            jsonRoundtripAndGolden $ Proxy @ApiEraInfo
-            jsonRoundtripAndGolden $ Proxy @ApiEra
-            jsonRoundtripAndGolden $ Proxy @ApiNetworkClock
-            jsonRoundtripAndGolden $ Proxy @ApiWalletDelegation
-            jsonRoundtripAndGolden $ Proxy @ApiHealthCheck
-            jsonRoundtripAndGolden $ Proxy @ApiWalletDelegationStatus
-            jsonRoundtripAndGolden $ Proxy @ApiWalletDelegationNext
-            jsonRoundtripAndGolden $ Proxy @(ApiT (Hash "Genesis"))
-            jsonRoundtripAndGolden $ Proxy @ApiStakePool
-            jsonRoundtripAndGolden $ Proxy @ApiStakePoolMetrics
-            jsonRoundtripAndGolden $ Proxy @(AddressAmount (ApiT Address, Proxy ('Testnet 0)))
-            jsonRoundtripAndGolden $ Proxy @(ApiTransaction ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiPutAddressesData ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @ApiWallet
-            jsonRoundtripAndGolden $ Proxy @ApiSharedWalletPostData
-            jsonRoundtripAndGolden $ Proxy @ApiScriptTemplateEntry
-            jsonRoundtripAndGolden $ Proxy @ApiSharedWalletPostDataFromMnemonics
-            jsonRoundtripAndGolden $ Proxy @ApiSharedWalletPostDataFromAccountPubX
-            jsonRoundtripAndGolden $ Proxy @ApiSharedWallet
-            jsonRoundtripAndGolden $ Proxy @ApiActiveSharedWallet
-            jsonRoundtripAndGolden $ Proxy @ApiPendingSharedWallet
-            jsonRoundtripAndGolden $ Proxy @ApiSharedWalletPatchData
-            jsonRoundtripAndGolden $ Proxy @ApiByronWallet
-            jsonRoundtripAndGolden $ Proxy @ApiByronWalletBalance
-            jsonRoundtripAndGolden $ Proxy @(ApiWalletMigrationPlan ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @ApiWalletMigrationBalance
-            jsonRoundtripAndGolden $ Proxy @(ApiWalletMigrationPlanPostData ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiWalletMigrationPostData ('Testnet 0) "lenient")
-            jsonRoundtripAndGolden $ Proxy @(ApiWalletMigrationPostData ('Testnet 0) "raw")
-            jsonRoundtripAndGolden $ Proxy @ApiWalletPassphrase
-            jsonRoundtripAndGolden $ Proxy @ApiWalletUtxoSnapshot
-            jsonRoundtripAndGolden $ Proxy @ApiUtxoStatistics
-            jsonRoundtripAndGolden $ Proxy @ApiFee
-            jsonRoundtripAndGolden $ Proxy @ApiStakePoolMetrics
-            jsonRoundtripAndGolden $ Proxy @ApiTxId
-            jsonRoundtripAndGolden $ Proxy @ApiVerificationKeyShelley
-            jsonRoundtripAndGolden $ Proxy @ApiVerificationKeyShared
-            jsonRoundtripAndGolden $ Proxy @(PostTransactionData ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(PostTransactionFeeData ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @WalletPostData
-            jsonRoundtripAndGolden $ Proxy @AccountPostData
-            jsonRoundtripAndGolden $ Proxy @WalletOrAccountPostData
-            jsonRoundtripAndGolden $ Proxy @SomeByronWalletPostData
-            jsonRoundtripAndGolden $ Proxy @ByronWalletFromXPrvPostData
-            jsonRoundtripAndGolden $ Proxy @WalletPutData
-            jsonRoundtripAndGolden $ Proxy @SettingsPutData
-            jsonRoundtripAndGolden $ Proxy @WalletPutPassphraseData
-            jsonRoundtripAndGolden $ Proxy @ByronWalletPutPassphraseData
-            jsonRoundtripAndGolden $ Proxy @(ApiT (Hash "Tx"))
-            jsonRoundtripAndGolden $ Proxy @(ApiT (Passphrase "raw"))
-            jsonRoundtripAndGolden $ Proxy @(ApiT (Passphrase "lenient"))
-            jsonRoundtripAndGolden $ Proxy @(ApiT Address, Proxy ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiT AddressPoolGap)
-            jsonRoundtripAndGolden $ Proxy @(ApiT Direction)
-            jsonRoundtripAndGolden $ Proxy @(ApiT TxMetadata)
-            jsonRoundtripAndGolden $ Proxy @(ApiT TxStatus)
-            jsonRoundtripAndGolden $ Proxy @(ApiWalletBalance)
-            jsonRoundtripAndGolden $ Proxy @(ApiT WalletId)
-            jsonRoundtripAndGolden $ Proxy @(ApiT WalletName)
-            jsonRoundtripAndGolden $ Proxy @ApiWalletPassphraseInfo
-            jsonRoundtripAndGolden $ Proxy @(ApiT SyncProgress)
-            jsonRoundtripAndGolden $ Proxy @(ApiT StakePoolMetadata)
-            jsonRoundtripAndGolden $ Proxy @ApiPostRandomAddressData
-            jsonRoundtripAndGolden $ Proxy @ApiTxMetadata
-            jsonRoundtripAndGolden $ Proxy @ApiMaintenanceAction
-            jsonRoundtripAndGolden $ Proxy @ApiMaintenanceActionPostData
-            jsonRoundtripAndGolden $ Proxy @ApiAsset
-            jsonRoundtripAndGolden $ Proxy @(ApiStakeKeys ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiOurStakeKey ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @(ApiForeignStakeKey ('Testnet 0))
-            jsonRoundtripAndGolden $ Proxy @ApiNullStakeKey
+            forM_ apiTypes $ \(ApiType t) -> jsonRoundtripAndGolden t
+
+    parallel $ describe
+        "JSON parsers reject unknown fields" $
+            forM_ apiTypes $ \(ApiType p@(Proxy :: Proxy t)) ->
+                it (show $ typeRep p) $
+                    property $ jsonParserRejectsUnknownFields @t
 
     describe "Textual encoding" $ do
         describe "Can perform roundtrip textual encoding & decoding" $ do
@@ -709,10 +739,8 @@ spec = parallel $ do
                     it ("Invalid ticker length: " ++ show (T.length txt)) $ do
                         Aeson.parseEither parseJSON [aesonQQ|
                             {
-                                "owner": "ed25519_pk1afhcpw2tg7nr2m3wr4x8jaa4dv7d09gnv27kwfxpjyvukwxs8qdqwg85xp",
                                 "homepage": "https://12345",
                                 "ticker": #{txt},
-                                "pledge_address": "ed25519_pk15vz9yc5c3upgze8tg5kd7kkzxqgqfxk5a3kudp22hdg0l2za00sq2ufkk7",
                                 "name": "invalid"
                             }
                         |] `shouldBe` (Left @String @(ApiT StakePoolMetadata) msg)
@@ -1095,6 +1123,29 @@ spec = parallel $ do
                     Error s -> s
                     _ -> ""
             in counterexample errStr $ res == Success SchemaApiErrorCode
+
+--------------------------------------------------------------------------------
+-- Strict JSON parsing
+--------------------------------------------------------------------------------
+
+jsonParserRejectsUnknownFields :: forall t. IsApiType t => t -> Property
+jsonParserRejectsUnknownFields v = case Aeson.decode (Aeson.encode v) of
+    Just (Aeson.Object o) ->
+        testWithUnknownField o
+    Just _ ->
+        property True
+    Nothing ->
+        error "jsonParserRejectsUnknownFields: Unable to parse generated value."
+  where
+    testWithUnknownField :: Aeson.Object -> Property
+    testWithUnknownField o = case decodedResult of
+        Left _ -> property True
+        Right _ -> counterexample (show encodedResult) $ property False
+      where
+        decodedResult :: Either String t
+        decodedResult = Aeson.eitherDecode @t encodedResult
+        encodedResult =
+            Aeson.encode $ HM.insert "unknown_field" "unknown_value" o
 
 {-------------------------------------------------------------------------------
                               Error type Encoding
