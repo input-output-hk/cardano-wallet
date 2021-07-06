@@ -28,6 +28,7 @@ module Cardano.Wallet.Transaction
 
     -- * Errors
     , ErrMkTx (..)
+    , ErrSignTx (..)
     , ErrDecodeSignedTx (..)
     , ErrSelectionCriteria (..)
     , ErrOutputTokenBundleSizeExceedsLimit (..)
@@ -63,6 +64,7 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TokenBundleSizeAssessor
     , Tx (..)
     , TxConstraints
+    , TxIn
     , TxMetadata
     , TxOut
     )
@@ -121,6 +123,18 @@ data TransactionLayer k = TransactionLayer
         --
         -- The function returns CBOR-ed transaction body to be signed in another step.
 
+    , mkSignedTransaction
+        :: AnyCardanoEra
+            -- Era for which the transaction should be created.
+        -> (XPrv, Passphrase "encryption")
+            -- Reward account
+        -> (TxIn -> Maybe (Address, k 'AddressK XPrv, Passphrase "encryption"))
+            -- Key store
+        -> SerialisedTx
+            -- serialized unsigned transaction
+        -> Either ErrSignTx (Tx, SealedTx)
+        -- ^ Sign a transaction
+
     , initSelectionCriteria
         :: ProtocolParameters
             -- Current protocol parameters
@@ -158,6 +172,7 @@ data TransactionLayer k = TransactionLayer
         -> ByteString
         -> Either ErrDecodeSignedTx (Tx, SealedTx)
         -- ^ Decode an externally-signed transaction to the chain producer
+
     }
     deriving Generic
 
@@ -245,6 +260,17 @@ data ErrMkTx
     | ErrConstructedInvalidTx Text
     -- ^ We failed to construct a transaction for some reasons.
     | ErrInvalidEra AnyCardanoEra
+    -- ^ Should never happen, means that that we have programmatically provided
+    -- an invalid era.
+    deriving (Eq, Show)
+
+-- | Possible signing error
+data ErrSignTx
+    = ErrSignTxKeyNotFoundForAddress TxIn
+    -- ^ We tried to sign a transaction with inputs that are unknown to us?
+    | ErrSignTxInvalidSerializedTx Text
+    -- ^ We failed to deserialize an unsigned transaction.
+    | ErrSignTxInvalidEra
     -- ^ Should never happen, means that that we have programmatically provided
     -- an invalid era.
     deriving (Eq, Show)
