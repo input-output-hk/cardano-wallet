@@ -3,6 +3,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -13,6 +14,7 @@ module Cardano.Wallet.Registry
     , empty
     , keys
     , lookup
+    , lookupResource
     , register
     , unregister
 
@@ -45,13 +47,15 @@ import Cardano.Wallet
 import Cardano.Wallet.Logging
     ( LoggedException (..) )
 import Control.Monad
-    ( void )
-import Control.Monad.IO.Class
-    ( MonadIO, liftIO )
+    ( void, (>=>) )
+import Control.Monad.IO.Unlift
+    ( MonadUnliftIO (..), liftIO )
 import Control.Tracer
-    ( Tracer, contramap, traceWith )
+    ( Tracer, contramap, natTracer, traceWith )
 import Data.Foldable
     ( traverse_ )
+import Data.Functor
+    ( ($>) )
 import Data.Generics.Internal.VL.Lens
     ( (^.) )
 import Data.Generics.Labels
@@ -71,9 +75,10 @@ import GHC.Generics
 import UnliftIO.Concurrent
     ( ThreadId, forkFinally, killThread )
 import UnliftIO.Exception
-    ( SomeException, isSyncException, withException )
+    ( SomeException, isSyncException, throwIO )
 import UnliftIO.MVar
     ( MVar
+    , modifyMVar
     , modifyMVar_
     , newEmptyMVar
     , newMVar
@@ -81,6 +86,7 @@ import UnliftIO.MVar
     , readMVar
     , takeMVar
     , tryPutMVar
+    , tryTakeMVar
     )
 
 {-------------------------------------------------------------------------------
@@ -108,42 +114,75 @@ newtype WorkerRegistry key resource =
 
 -- | Construct a new empty registry
 empty
-    :: Ord key => IO (WorkerRegistry key resource)
+    :: (MonadUnliftIO m, Ord key)
+    => m (WorkerRegistry key resource)
 empty =
     WorkerRegistry <$> newMVar mempty
 
 -- | Lookup the registry for a given worker
 lookup
-    :: (MonadIO m, Ord key)
+    :: (MonadUnliftIO m, Ord key)
     => WorkerRegistry key resource
     -> key
     -> m (Maybe (Worker key resource))
 lookup (WorkerRegistry mvar) k =
-    liftIO (Map.lookup k <$> readMVar mvar)
+    Map.lookup k <$> readMVar mvar
+
+-- | Lookup the resource for a given worker. If the worker is registered, but
+-- not yet initialized, this will block until the resource is acquired and the
+-- 'workerBefore' action is complete.
+lookupResource
+    :: (MonadUnliftIO m, Ord key)
+    => WorkerRegistry key resource
+    -> key
+    -> m (Maybe resource)
+lookupResource reg k = lookup reg k >>= traverse (readMVar . workerResource)
 
 -- | Get all registered keys in the registry
 keys
-    :: WorkerRegistry key resource
-    -> IO [key]
+    :: MonadUnliftIO m
+    => WorkerRegistry key resource
+    -> m [key]
 keys (WorkerRegistry mvar) =
     Map.keys <$> readMVar mvar
 
--- | Register a new worker
-insert
-    :: Ord key
+-- | Registers a new worker, unless it has already been registered.
+-- If the worker is already registered, 'Just' that worker will be returned.
+-- Otherwise, 'Nothing' is returned.
+getOrCreate
+    :: (MonadUnliftIO m, Ord key)
     => WorkerRegistry key resource
     -> Worker key resource
-    -> IO ()
-insert (WorkerRegistry mvar) wrk =
-    modifyMVar_ mvar (pure . Map.insert (workerId wrk) wrk)
+    -> m (Maybe (Worker key resource))
+getOrCreate (WorkerRegistry mvar) wrk = modifyMVar mvar $ \registry ->
+    pure $ case Map.lookup (workerId wrk) registry of
+        Just existing -> (registry, Just existing)
+        Nothing -> (Map.insert (workerId wrk) wrk registry, Nothing)
+
+-- | Register a worker with empty ThreadId and resource, then run the given
+-- action.
+--
+-- If there is already a worker registered, return that, and don't run any
+-- action.
+addWorker
+    :: (MonadUnliftIO m, Ord key)
+    => WorkerRegistry key resource
+    -> key
+    -> (Worker key resource -> m ())
+    -> m (Worker key resource)
+addWorker registry k action = do
+    worker <- Worker k <$> newEmptyMVar <*> newEmptyMVar
+    registry `getOrCreate` worker >>= \case
+        Just existing -> pure existing
+        Nothing -> action worker $> worker
 
 -- | Delete a worker from the registry, but don't cancel the running task.
 --
 delete
-    :: Ord key
+    :: (MonadUnliftIO m, Ord key)
     => WorkerRegistry key resource
     -> key
-    -> IO (Maybe (Worker key resource))
+    -> m (Maybe (Worker key resource))
 delete (WorkerRegistry mvar) k = do
     mWorker <- Map.lookup k <$> readMVar mvar
     modifyMVar_ mvar (pure . Map.delete k)
@@ -152,12 +191,13 @@ delete (WorkerRegistry mvar) k = do
 -- | Unregister a worker from the registry, terminating the running task.
 --
 unregister
-    :: Ord key
+    :: (MonadUnliftIO m, Ord key)
     => WorkerRegistry key resource
     -> key
-    -> IO ()
+    -> m ()
 unregister registry k =
-    delete registry k >>= traverse_ (killThread . workerThread)
+    delete registry k >>=
+    traverse_ ((tryTakeMVar . workerThread) >=> traverse killThread)
 
 {-------------------------------------------------------------------------------
                                     Worker
@@ -167,32 +207,32 @@ unregister registry k =
 -- resource can be, for example, a handle to a database connection.
 data Worker key resource = Worker
     { workerId :: key
-    , workerThread :: ThreadId
-    , workerResource :: resource
+    , workerThread :: MVar ThreadId
+    , workerResource :: MVar resource
     } deriving (Generic)
 
 -- | See 'register'
-data MkWorker key resource msg ctx = MkWorker
-    { workerBefore :: WorkerCtx ctx -> key -> IO ()
+data MkWorker m key resource msg ctx = MkWorker
+    { workerBefore :: WorkerCtx ctx -> key -> m ()
         -- ^ A task to execute before the main worker's task. When creating a
         -- worker, this task is guaranteed to have terminated once 'register'
         -- returns.
-    , workerMain :: WorkerCtx ctx -> key -> IO ()
+    , workerMain :: WorkerCtx ctx -> key -> m ()
         -- ^ A task for the worker, possibly infinite
     , workerAfter
-        :: Tracer IO (WorkerLog key msg) -> Either SomeException () -> IO ()
+        :: Tracer m (WorkerLog key msg) -> Either SomeException () -> m ()
         -- ^ Action to run when the worker exits. It will be run
         --   * when the 'workerMain' action exits (successfully or not)
         --   * if 'workerAcquire' fails
         --   * or if the 'workerBefore' action throws an exception.
-    , workerAcquire :: (resource -> IO ()) -> IO ()
+    , workerAcquire :: (resource -> m ()) -> m ()
         -- ^ A bracket-style factory to acquire a resource
     }
 
 defaultWorkerAfter
-    :: Tracer IO (WorkerLog key msg)
+    :: Tracer m (WorkerLog key msg)
     -> Either SomeException a
-    -> IO ()
+    -> m ()
 defaultWorkerAfter tr = traceAfterThread (contramap MsgThreadAfter tr)
 
 -- | Register a new worker for a given key.
@@ -201,12 +241,16 @@ defaultWorkerAfter tr = traceAfterThread (contramap MsgThreadAfter tr)
 -- and will terminate as soon as its task is over. In practice, we provide a
 -- never-ending task that keeps the worker alive forever.
 --
--- Returns 'Nothing' if the worker fails to acquire the necessary resource or
--- terminates unexpectedly before entering its 'main' action.
+-- This function returns once the 'workerAcquire' and 'workerBefore' actions
+-- have completed. Any (synchronous) exceptions thrown during setup are rethrown
+-- by this function.
 --
+-- If a worker is already registered with the given key, the existing worker
+-- will be returned, and the new worker will be ignored.
 register
-    :: forall resource ctx key msg.
-        ( Ord key
+    :: forall m resource ctx key msg.
+        ( MonadUnliftIO m
+        , Ord key
         , key ~ WorkerKey ctx
         , msg ~ WorkerMsg ctx
         , HasLogger (WorkerLog key msg) ctx
@@ -215,31 +259,29 @@ register
     => WorkerRegistry key resource
     -> ctx
     -> key
-    -> MkWorker key resource msg ctx
-    -> IO (Maybe (Worker key resource))
-register registry ctx k (MkWorker before main after acquire) = do
-    resourceVar <- newEmptyMVar
-    let work = acquire $ \resource -> do
+    -> MkWorker m key resource msg ctx
+    -> m (Worker key resource)
+register registry ctx k MkWorker{..} = addWorker registry k $ \worker -> do
+    -- Variable which is filled once worker is set up, and main action is about
+    -- to begin.
+    setupVar <- newEmptyMVar :: m (MVar (Maybe SomeException))
+    -- The worker thread.
+    let work = workerAcquire $ \resource -> do
             let ctx' = hoistResource resource (MsgFromWorker k) ctx
-            before ctx' k `withException` (after tr . Left)
-            putMVar resourceVar (Just resource)
-            main ctx' k
-    threadId <- work `forkFinally` cleanup resourceVar
-    takeMVar resourceVar >>= traverse (create threadId)
-  where
-    tr = ctx ^. logger @(WorkerLog key msg)
-    create threadId resource = do
-        let worker = Worker
-                { workerId = k
-                , workerThread = threadId
-                , workerResource = resource
-                }
-        registry `insert` worker
-        return worker
-    cleanup resourceVar result = do
+            workerBefore ctx' k
+            putMVar (workerResource worker) resource
+            putMVar setupVar Nothing
+            workerMain ctx' k
+    threadId <- work `forkFinally` \result -> do
         void $ registry `delete` k
-        void $ tryPutMVar resourceVar Nothing
-        after tr result
+        void $ tryPutMVar setupVar (either Just (const Nothing) result)
+        workerAfter tr result
+    putMVar (workerThread worker) threadId
+    -- Rethrow any exception which happened during worker setup, and return
+    -- control to caller.
+    takeMVar setupVar >>= maybe (pure ()) throwIO
+  where
+    tr = natTracer liftIO (ctx ^. logger @(WorkerLog key msg))
 
 {-------------------------------------------------------------------------------
                                     Logging
