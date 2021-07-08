@@ -3274,25 +3274,6 @@ instance IsServerError ErrMkTx where
                 , "retry whatever you were doing in a short delay."
                 ]
 
-instance IsServerError ErrSignTx where
-    toServerError = \case
-        ErrSignTxKeyNotFoundForAddress addr ->
-            apiError err500 KeyNotFoundForAddress $ mconcat
-                [ "That's embarrassing. I couldn't sign the given transaction: "
-                , "I haven't found the corresponding private key for a known "
-                , "input address I should keep track of: ", showT addr, ". "
-                , "Retrying may work, but something really went wrong..."
-                ]
-        ErrSignTxInvalidSerializedTx hint ->
-            apiError err500 CreatedInvalidTransaction hint
-        ErrSignTxInvalidEra ->
-            apiError err500 CreatedInvalidTransaction $ mconcat
-                [ "Whoops, it seems like I just experienced a hard-fork in the "
-                , "middle of other tasks. This is a pretty rare situation but "
-                , "as a result, I must throw-away what I was doing. Please "
-                , "retry whatever you were doing in a short delay."
-                ]
-
 instance IsServerError ErrSignPayment where
     toServerError = \case
         ErrSignPaymentMkTx e -> toServerError e
@@ -3320,6 +3301,26 @@ instance IsServerError ErrWitnessTx where
             }
         ErrWitnessTxWithRootKey e@ErrWithRootKeyWrongPassphrase{} -> toServerError e
         ErrWitnessTxIncorrectTTL e -> toServerError e
+
+instance IsServerError ErrSignTx where
+    toServerError = \case
+        ErrSignTxKeyNotFoundForAddress addr ->
+            apiError err500 KeyNotFoundForAddress $ mconcat
+                [ "That's embarrassing. I couldn't sign the given transaction: "
+                , "I haven't found the corresponding private key for a known "
+                , "input address I should keep track of: ", showT addr, ". "
+                , "Retrying may work, but something really went wrong..."
+                ]
+        ErrSignTxInvalidSerializedTx hint ->
+            apiError err500 CreatedInvalidTransaction hint
+        ErrSignTxInvalidEra ->
+            apiError err500 CreatedInvalidTransaction $ mconcat
+                [ "Whoops, it seems like I just experienced a hard-fork in the "
+                , "middle of other tasks. This is a pretty rare situation but "
+                , "as a result, I must throw-away what I was doing. Please "
+                , "retry whatever you were doing in a short delay."
+                ]
+
 
 instance IsServerError ErrConstructTx where
     toServerError = \case

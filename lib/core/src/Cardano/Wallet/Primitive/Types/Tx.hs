@@ -25,15 +25,19 @@ module Cardano.Wallet.Primitive.Types.Tx
     , TxMetadata (..)
     , TxMetadataValue (..)
     , TxStatus (..)
-    , SealedTx (..)
-    , SerialisedTx (..)
-    , SerialisedTxParts (..)
     , UnsignedTx (..)
     , TransactionInfo (..)
     , Direction (..)
     , LocalTxSubmissionStatus (..)
     , TokenBundleSizeAssessor (..)
     , TokenBundleSizeAssessment (..)
+
+    -- * Serialisation
+    , SealedTx (..)
+    , sealedTxToBytes
+    , sealedTxFromBytes
+    , SerialisedTx (..)
+    , SerialisedTxParts (..)
 
     -- * Functions
     , fromTransactionInfo
@@ -66,7 +70,13 @@ module Cardano.Wallet.Primitive.Types.Tx
 import Prelude
 
 import Cardano.Api
-    ( TxMetadata (..), TxMetadataValue (..) )
+    ( CardanoEra (..)
+    , InAnyCardanoEra (..)
+    , TxMetadata (..)
+    , TxMetadataValue (..)
+    )
+import Cardano.Binary
+    ( DecoderError )
 import Cardano.Slotting.Slot
     ( SlotNo (..) )
 import Cardano.Wallet.Orphans
@@ -95,6 +105,8 @@ import Data.ByteArray
     ( ByteArray, ByteArrayAccess )
 import Data.ByteString
     ( ByteString )
+import Data.Either
+    ( partitionEithers )
 import Data.Function
     ( (&) )
 import Data.Generics.Internal.VL.Lens
@@ -139,6 +151,7 @@ import Numeric.Natural
 import Quiet
     ( Quiet (..) )
 
+import qualified Cardano.Api as Cardano
 import qualified Cardano.Wallet.Primitive.Types.TokenBundle as TokenBundle
 import qualified Cardano.Wallet.Primitive.Types.TokenMap as TokenMap
 import qualified Data.Map.Strict as Map
@@ -402,9 +415,36 @@ instance Buildable a => Buildable (WithDirection a) where
 
 -- | @SealedTx@ is a signed and serialised transaction that is ready to be
 -- submitted to the node.
-newtype SealedTx = SealedTx { getSealedTx :: ByteString }
-    deriving stock (Show, Eq, Generic)
-    deriving newtype (ByteArrayAccess, NFData)
+-- TODO: ADP-909 this wrapper will disappear, leaving just Cardano.Tx
+newtype SealedTx = SealedTx { getSealedTx :: InAnyCardanoEra Cardano.Tx }
+    deriving stock (Generic)
+
+instance Show SealedTx where
+    show (SealedTx (InAnyCardanoEra _era tx)) = show tx
+
+instance Eq SealedTx where
+    (==) (SealedTx (InAnyCardanoEra _era1 _tx1))
+         (SealedTx (InAnyCardanoEra _era2 _tx2)) = False
+
+-- fixme: temp fix
+instance NFData SealedTx where
+    rnf = rnf . show
+
+sealedTxToBytes :: SealedTx -> ByteString
+sealedTxToBytes (SealedTx (InAnyCardanoEra _ tx)) = Cardano.serialiseToCBOR tx
+
+sealedTxFromBytes :: ByteString -> Either DecoderError SealedTx
+sealedTxFromBytes bs = SealedTx <$> asum
+    [ InAnyCardanoEra MaryEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsMaryEra) bs
+    , InAnyCardanoEra AllegraEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsAllegraEra) bs
+    , InAnyCardanoEra ShelleyEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsShelleyEra) bs
+    , InAnyCardanoEra ByronEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsByronEra) bs
+    ]
+  where
+    asum xs = case partitionEithers xs of
+        (_, (a:_)) -> Right a
+        ((e:_), []) -> Left e
+        ([], []) -> undefined
 
 -- | A serialised transaction that may be only partially signed, or even
 -- invalid.

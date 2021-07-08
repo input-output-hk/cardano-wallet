@@ -43,6 +43,8 @@ module Cardano.Wallet.Shelley.Network
 
 import Prelude
 
+import Cardano.Binary
+    ( fromCBOR )
 import Cardano.BM.Data.Severity
     ( Severity (..) )
 import Cardano.BM.Data.Tracer
@@ -63,6 +65,8 @@ import Cardano.Wallet.Primitive.Slotting
     )
 import Cardano.Wallet.Primitive.SyncProgress
     ( SyncProgress (..), SyncTolerance )
+import Cardano.Wallet.Primitive.Types.Tx
+    ( sealedTxToBytes )
 import Cardano.Wallet.Shelley.Compatibility
     ( AnyCardanoEra (..)
     , CardanoEra (..)
@@ -83,8 +87,9 @@ import Cardano.Wallet.Shelley.Compatibility
     , toPoint
     , toShelleyCoin
     , toStakeCredential
-    , unsealShelleyTx
     )
+import Cardano.Wallet.Unsafe
+    ( unsafeDeserialiseCbor )
 import Control.Applicative
     ( liftA3 )
 import Control.Monad
@@ -165,6 +170,7 @@ import Ouroboros.Consensus.Cardano.Block
     ( BlockQuery (..)
     , CardanoApplyTxErr
     , CardanoEras
+    , CardanoGenTx (..)
     , CodecConfig (..)
     , GenTx (..)
     )
@@ -263,10 +269,12 @@ import qualified Cardano.Wallet.Primitive.Types.Hash as W
 import qualified Cardano.Wallet.Primitive.Types.RewardAccount as W
 import qualified Cardano.Wallet.Primitive.Types.Tx as W
 import qualified Codec.CBOR.Term as CBOR
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as T
+import qualified Ouroboros.Consensus.Block as O
 import qualified Ouroboros.Consensus.Byron.Ledger as Byron
 import qualified Ouroboros.Consensus.Shelley.Ledger as Shelley
 import qualified Ouroboros.Network.Point as Point
@@ -494,6 +502,16 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
                     SubmitSuccess -> pure ()
                     SubmitFail err -> throwE $ ErrPostTxBadRequest $ T.pack (show err)
 
+      where
+        unsealShelleyTx
+            :: (HasCallStack, SL.ShelleyBasedEra (era c), Shelley.ShelleyBasedEra (era c))
+            => (GenTx (Shelley.ShelleyBlock (era c)) -> CardanoGenTx c)
+            -> W.SealedTx
+            -> CardanoGenTx c
+        unsealShelleyTx wrap = wrap
+            . unsafeDeserialiseCbor fromCBOR
+            . BL.fromStrict
+            . sealedTxToBytes
 
     _stakeDistribution queue coin = do
         liftIO $ traceWith tr $ MsgWillQueryRewardsForStake coin
@@ -517,7 +535,6 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
                 return res
             Nothing -> pure $ W.StakePoolsSummary 0 mempty mempty
       where
-
         stakeDistr
             :: LSQ (CardanoBlock StandardCrypto) IO
                 (Maybe (Map W.PoolId Percentage))
@@ -596,7 +613,6 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
                     -- db.
                     Left _pastHorizon -> return NotResponding
                     Right p -> return p
-
 
 --------------------------------------------------------------------------------
 --
