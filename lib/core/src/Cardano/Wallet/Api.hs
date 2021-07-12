@@ -208,9 +208,9 @@ import Cardano.Wallet.Api.Types
     , Iso8601Time
     , KeyFormat
     , MinWithdrawal
+    , PostMintBurnAssetDataT
     , PostTransactionFeeOldDataT
     , PostTransactionOldDataT
-    , PostMintBurnAssetDataT
     , SettingsPutData
     , SomeByronWalletPostData
     , WalletOrAccountPostData

@@ -73,9 +73,9 @@ import Cardano.Wallet.Api.Types
     , ApiWalletSignData
     , Base (Base64)
     , ByronWalletPutPassphraseData
+    , PostMintBurnAssetData
     , PostTransactionFeeOldData
     , PostTransactionOldData
-    , PostMintBurnAssetData
     , SettingsPutData (..)
     , SomeByronWalletPostData
     , WalletOrAccountPostData
