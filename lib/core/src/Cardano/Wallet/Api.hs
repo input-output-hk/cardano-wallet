@@ -107,6 +107,7 @@ module Cardano.Wallet.Api
         , PostByronTransactionFeeOld
         , DeleteByronTransaction
         , GetByronTransaction
+        , ConstructByronTransaction
 
     , ByronMigrations
         , MigrateByronWallet
