@@ -152,8 +152,8 @@ import Cardano.Wallet.Primitive.Types.TokenQuantity
 import Cardano.Wallet.Primitive.Types.Tx
     ( Direction (..)
     , LocalTxSubmissionStatus (..)
-    , SerialisedTx (..)
     , SealedTx (..)
+    , SerialisedTx (..)
     , TransactionInfo (..)
     , Tx (..)
     , TxIn (..)
@@ -1020,7 +1020,7 @@ instance ToExpr TxMeta where
     toExpr = genericToExpr
 
 instance ToExpr SealedTx where
-    toExpr = genericToExpr
+    toExpr _ = toExpr ("fixme: ToExpr SealedTx" :: String)
 
 instance ToExpr MockSealedTx where
     toExpr = genericToExpr
