@@ -130,8 +130,6 @@ import Control.Retry
     ( RetryPolicyM, RetryStatus (..), capDelay, fibonacciBackoff, recovering )
 import Control.Tracer
     ( Tracer (..), contramap, nullTracer, traceWith )
-import Data.ByteArray.Encoding
-    ( Base (..), convertToBase )
 import Data.ByteString.Lazy
     ( ByteString )
 import Data.Function
@@ -170,7 +168,7 @@ import Ouroboros.Consensus.Cardano.Block
     ( BlockQuery (..)
     , CardanoApplyTxErr
     , CardanoEras
-    , CardanoGenTx (..)
+    , CardanoGenTx
     , CodecConfig (..)
     , GenTx (..)
     )
@@ -273,8 +271,6 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
-import qualified Ouroboros.Consensus.Block as O
 import qualified Ouroboros.Consensus.Byron.Ledger as Byron
 import qualified Ouroboros.Consensus.Shelley.Ledger as Shelley
 import qualified Ouroboros.Network.Point as Point
@@ -504,7 +500,7 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
 
       where
         unsealShelleyTx
-            :: (HasCallStack, SL.ShelleyBasedEra (era c), Shelley.ShelleyBasedEra (era c))
+            :: (HasCallStack, Shelley.ShelleyBasedEra (era c))
             => (GenTx (Shelley.ShelleyBlock (era c)) -> CardanoGenTx c)
             -> W.SealedTx
             -> CardanoGenTx c
