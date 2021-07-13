@@ -152,6 +152,7 @@ import Cardano.Wallet.Primitive.Types.TokenQuantity
 import Cardano.Wallet.Primitive.Types.Tx
     ( Direction (..)
     , LocalTxSubmissionStatus (..)
+    , SerialisedTx (..)
     , SealedTx (..)
     , TransactionInfo (..)
     , Tx (..)
@@ -321,14 +322,39 @@ instance MockPrivKey (ByronKey 'RootK) where
     fromMockPrivKey s = (k, Hash (B8.pack s))
       where (k, _) = unsafeDeserializeXPrv (zeroes <> ":", mempty)
 
+newtype MockSerialisedTx = MockSerialisedTx { mockSerialisedTxId :: Hash "Tx" }
+    deriving (Show, Eq, Generic, NFData)
+
+unMockSerialisedTx :: Hash "Tx" -> SerialisedTx
+unMockSerialisedTx = SerialisedTx . getHash
+
+mockSerialisedTx :: SerialisedTx -> MockSerialisedTx
+mockSerialisedTx = MockSerialisedTx . Hash . payload
+
+-- TODO: ADP-909 This could be tricky
 newtype MockSealedTx = MockSealedTx { mockSealedTxId :: Hash "Tx" }
     deriving (Show, Eq, Generic, NFData)
 
 unMockSealedTx :: Hash "Tx" -> SealedTx
-unMockSealedTx = SealedTx . getHash
+unMockSealedTx = SealedTx . error "fixme: mock Tx" . getHash
 
 mockSealedTx :: SealedTx -> MockSealedTx
-mockSealedTx = MockSealedTx . Hash . getSealedTx
+mockSealedTx = MockSealedTx . Hash . error "fixme: mock Tx" . getSealedTx
+
+{-
+data MockEra
+data TxBody MockEra where
+    MockTxBody :: Hash "Tx" -> TxBody MockEra
+instance IsShelleyBasedEra MockEra where
+    shelleyBasedEra :: ShelleyBasedEraShelley
+instance IsCardanoEra MockEra where
+    cardanoEra = ShelleyEra
+instance HasTypeProxy ByronEra where
+    data AsType MockEra = AsMockEra
+    proxyToAsType _ = AsMockEra
+pattern AsMock :: AsType MockEra
+pattern AsMock = AsMockEra
+-}
 
 {-------------------------------------------------------------------------------
   Language
