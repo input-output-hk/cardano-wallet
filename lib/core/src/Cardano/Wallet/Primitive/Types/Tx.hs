@@ -36,6 +36,7 @@ module Cardano.Wallet.Primitive.Types.Tx
     , SealedTx (..)
     , sealedTxToBytes
     , sealedTxFromBytes
+    , sealedTxAsHex
     , SerialisedTx (..)
     , SerialisedTxParts (..)
 
@@ -103,6 +104,8 @@ import Data.Bifunctor
     ( first )
 import Data.ByteArray
     ( ByteArray, ByteArrayAccess )
+import Data.ByteArray.Encoding
+    ( Base (..), convertToBase )
 import Data.ByteString
     ( ByteString )
 import Data.Either
@@ -123,6 +126,8 @@ import Data.Quantity
     ( Quantity (..) )
 import Data.Set
     ( Set )
+import Data.Text
+    ( Text )
 import Data.Text.Class
     ( CaseStyle (..)
     , FromText (..)
@@ -156,6 +161,7 @@ import qualified Cardano.Wallet.Primitive.Types.TokenBundle as TokenBundle
 import qualified Cardano.Wallet.Primitive.Types.TokenMap as TokenMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
+import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy.Builder as Builder
 
 -- | Primitive @Tx@-type.
@@ -445,6 +451,9 @@ sealedTxFromBytes bs = SealedTx <$> asum
         (_, (a:_)) -> Right a
         ((e:_), []) -> Left e
         ([], []) -> undefined
+
+sealedTxAsHex :: SealedTx -> Text
+sealedTxAsHex = T.decodeUtf8 . convertToBase Base16 . sealedTxToBytes
 
 -- | A serialised transaction that may be only partially signed, or even
 -- invalid.

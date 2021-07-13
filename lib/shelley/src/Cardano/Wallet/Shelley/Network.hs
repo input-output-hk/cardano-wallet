@@ -66,7 +66,7 @@ import Cardano.Wallet.Primitive.Slotting
 import Cardano.Wallet.Primitive.SyncProgress
     ( SyncProgress (..), SyncTolerance )
 import Cardano.Wallet.Primitive.Types.Tx
-    ( sealedTxToBytes )
+    ( sealedTxAsHex, sealedTxToBytes )
 import Cardano.Wallet.Shelley.Compatibility
     ( AnyCardanoEra (..)
     , CardanoEra (..)
@@ -1236,9 +1236,9 @@ instance ToText NetworkLayerLog where
             ]
         MsgIntersectionFound point -> T.unwords
             [ "Intersection found:", pretty point ]
-        MsgPostTx (W.SealedTx bytes) -> T.unwords
+        MsgPostTx tx -> T.unwords
             [ "Posting transaction, serialized as:"
-            , T.decodeUtf8 $ convertToBase Base16 bytes
+            , sealedTxAsHex tx
             ]
         MsgLocalStateQuery client msg ->
             T.pack (show client <> " " <> show msg)
