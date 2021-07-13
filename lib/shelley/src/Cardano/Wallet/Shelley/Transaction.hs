@@ -290,17 +290,14 @@ constructSignedTx
     :: forall k.
         ( TxWitnessTagFor k
         , WalletKey k
-        , EraConstraints era
         )
-    =>
-    -> Cardano.NetworkId
+    => Cardano.NetworkId
     -> InAnyCardanoEra TxPayload
     -> (XPrv, Passphrase "encryption")
     -- ^ Reward account
     -> (TxIn -> Maybe (Address, k 'AddressK XPrv, Passphrase "encryption"))
     -- ^ Key store
     -> SerialisedTx
-    -> ShelleyBasedEra era
     -> Either ErrSignTx (Tx, SealedTx)
 constructSignedTx networkId payload (rewardAcnt, pwdAcnt) keyFrom serialisedTx = do
     InAnyCardanoEra txEra tx <- deserialiseTx serialisedTx
