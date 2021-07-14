@@ -423,8 +423,10 @@ instance Buildable a => Buildable (WithDirection a) where
         <> (case d of; Incoming -> "+"; Outgoing -> "-")
         <> build a
 
--- | @SealedTx@ is a signed and serialised transaction that is ready to be
--- submitted to the node.
+-- | 'SealedTx' is a possibly signed and serialised transaction that is ready to
+-- be submitted to the node.
+--
+-- Construct it with either 'sealedTxFromCardano' or 'cardanoTxFromBytes'.
 data SealedTx = SealedTx
     { cardanoTx :: InAnyCardanoEra Cardano.Tx
     , serialisedTx :: ByteString
