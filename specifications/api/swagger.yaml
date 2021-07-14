@@ -2952,9 +2952,11 @@ components:
     ApiMintBurnOperation: &ApiMintBurnOperation
       type: object
       oneOf:
-        - properties:
+        - title: "mint"
+          properties:
             mint: *ApiMintData
-        - properties:
+        - title: "burn"
+          properties:
             burn: *ApiBurnData
 
     ApiMintBurnData: &ApiMintBurnData
