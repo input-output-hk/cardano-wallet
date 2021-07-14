@@ -90,8 +90,6 @@ import Cardano.Wallet.Primitive.Types.Address
     ( Address (..) )
 import Cardano.Wallet.Primitive.Types.Coin
     ( Coin (..), addCoin, subtractCoin )
-import Cardano.Wallet.Primitive.Types.Hash
-    ( Hash (Hash) )
 import Cardano.Wallet.Primitive.Types.TokenBundle
     ( TokenBundle )
 import Cardano.Wallet.Primitive.Types.TokenMap
@@ -121,6 +119,7 @@ import Cardano.Wallet.Shelley.Compatibility
     , fromAlonzoTx
     , fromMaryTx
     , fromShelleyTx
+    , fromShelleyTxId
     , maxTokenBundleSerializedLengthBytes
     , toAllegraTxOut
     , toCardanoLovelace
@@ -153,8 +152,6 @@ import Control.Monad
     ( forM )
 import Data.ByteString
     ( ByteString )
-import Data.Coerce
-    ( coerce )
 import Data.Function
     ( (&) )
 import Data.Generics.Internal.VL.Lens
@@ -173,8 +170,6 @@ import Data.Word
     ( Word16, Word64, Word8 )
 import Fmt
     ( Buildable, pretty )
-import GHC.Records
-    ( getField )
 import GHC.Stack
     ( HasCallStack )
 import Ouroboros.Network.Block
@@ -202,9 +197,7 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import qualified Ouroboros.Consensus.Shelley.Ledger as O
 import qualified Shelley.Spec.Ledger.Address.Bootstrap as SL
-import qualified Shelley.Spec.Ledger.API as Ledger
 
 
 -- | Type encapsulating what we need to know to add things -- payloads,
@@ -314,17 +307,15 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
         -> Either ErrSignTx (Tx, Cardano.Tx era)
     signShelley era tx = do
         let body = Cardano.getTxBody tx
-        let (Cardano.ShelleyTxBody _ ledgerBody _scripts _aux _) = body
+        let (Cardano.TxBody txBodyContent) = body
 
         let mkExtraWits = const []
 
-        -- let Ledger.TxBody ins _ _ wdrls _ _ _ _ = ledgerBody
-        let areWdrls = False  -- Cardano.txWithdrawals body /= Cardano.TxWithdrawalsNone
+        let areWdrls = Cardano.txWithdrawals txBodyContent /= Cardano.TxWithdrawalsNone
 
-        let selectedInputs = []
-        -- let selectedInputs =
-        --         [ TxIn (Hash $ coerce h) (fromIntegral ix)
-        --         | Ledger.TxIn (Ledger.TxId h) ix <- Set.toList ins ]
+        let selectedInputs =
+                [ TxIn (fromShelleyTxId $ Cardano.toShelleyTxId txid) (fromIntegral ix)
+                | Cardano.TxIn txid (Cardano.TxIx ix) <- fst <$> (Cardano.txIns txBodyContent) ]
 
         wits <- case txWitnessTagFor @k of
             TxWitnessShelleyUTxO -> do
@@ -346,7 +337,7 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
                 pure $ F.toList bootstrapWits <> mkExtraWits body
 
         let signed = Cardano.makeSignedTransaction wits body
-        let withResolvedInputs tx = tx
+        let withResolvedInputs tx' = tx'
                 { resolvedInputs = (, Coin 0) <$> selectedInputs -- fixme: resolve inputs
                 }
         Right (withResolvedInputs (fromCardanoTx signed), signed)
@@ -434,7 +425,7 @@ mkTx networkId payload ttl (rewardAcnt, pwdAcnt) keyFrom wdrl cs fees era = do
     Right $ first withResolvedInputs $ sealShelleyTx signed
 
 newTransactionLayer
-    :: forall k era.
+    :: forall k.
         ( TxWitnessTagFor k
         , WalletKey k
         )

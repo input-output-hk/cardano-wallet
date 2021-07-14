@@ -70,6 +70,7 @@ module Cardano.Wallet.Shelley.Compatibility
     , toCardanoValue
     , fromCardanoValue
     , rewardAccountFromAddress
+    , fromShelleyTxId
 
       -- ** Assessing sizes of token bundles
     , tokenBundleSizeAssessor
