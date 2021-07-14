@@ -484,7 +484,7 @@ sealedTxAsHex = T.decodeUtf8 . convertToBase Base16 . view #serialisedTx
 
 -- | Get the serialised transaction body and witnesses from a 'SealedTx'.
 getSerialisedTxParts :: SealedTx -> (ByteString, [ByteString])
-getSerialisedTxParts (SealedTx tx _) = (mempty, mempty) -- fixme: ADP-909 implement
+getSerialisedTxParts (SealedTx _tx _) = (mempty, mempty) -- fixme: ADP-909 implement
 
 -- | A serialised transaction that may be only partially signed, or even
 -- invalid.

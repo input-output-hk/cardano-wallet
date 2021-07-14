@@ -2491,10 +2491,10 @@ instance (HasBase base, ByteArrayAccess bs) => ToJSON (ApiBytesT base bs) where
 
 instance FromJSON (ApiT SealedTx) where
     parseJSON = (eitherToParser . bimap ShowFmt ApiT . sealedTxFromBytes)
-        <=< (fmap getApiBytesT . parseJSON @(ApiBytesT Base64 ByteString))
+        <=< (fmap getApiBytesT . parseJSON @(ApiBytesT 'Base64 ByteString))
 
 instance ToJSON (ApiT SealedTx) where
-    toJSON = toJSON . ApiBytesT @Base64 . view #serialisedTx . view #getApiT
+    toJSON = toJSON . ApiBytesT @'Base64 . view #serialisedTx . view #getApiT
 
 instance FromJSON ApiSerialisedTransaction where
     parseJSON = genericParseJSON defaultRecordTypeOptions

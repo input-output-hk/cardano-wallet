@@ -501,6 +501,7 @@ import qualified Data.ByteArray as BA
 import qualified Data.Foldable as F
 import qualified Data.List as L
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Data.Vector as V
@@ -1546,7 +1547,7 @@ signTransaction
         ( HasTransactionLayer k ctx
         , HasDBLayer IO s k ctx
         , HasNetworkLayer IO ctx
-        --, IsOwned s k
+        , IsOwned s k
         )
     => ctx
     -> WalletId
@@ -1555,20 +1556,24 @@ signTransaction
     -> Passphrase "raw"
     -> SealedTx
     -> ExceptT ErrWitnessTx IO SealedTx
-signTransaction ctx wid mkRwdAcct pwd tx = db & \DBLayer{..} -> do
-    era <- liftIO $ currentNodeEra nl
-    withRootKey @_ @s ctx wid pwd ErrWitnessTxWithRootKey $ \xprv scheme -> do
-        let pwdP = preparePassphrase scheme pwd
-        mapExceptT atomically $ do
-            _cp <- withExceptT ErrWitnessTxNoSuchWallet $ withNoSuchWallet wid $
-                readCheckpoint wid
-
-            -- TODO: ADP-919 implement this
-            -- we need function that will take TxIn and return (Address, Prv, Passphrase)
-            let keyFrom = undefined--isOwned (getState cp) (xprv, pwdP)
-            let rewardAcnt = mkRwdAcct (xprv, pwdP)
-            withExceptT ErrWitnessTxSignTx $ ExceptT $ pure $ fmap snd $
-                 mkSignedTransaction tl era rewardAcnt keyFrom tx
+signTransaction ctx wid mkRwdAcct pwd tx = do
+    (cp, _, pending) <- withExceptT
+        ErrWitnessTxNoSuchWallet (readWallet @ctx @s @k ctx wid)
+    let utxo = availableUTxO @s pending cp
+    let getAddrFromTxOut (TxOut addr _) = addr
+    let getAddrFromUTxO txin = getAddrFromTxOut <$> Map.lookup txin (getUTxO utxo)
+    db & \DBLayer{..} -> do
+        era <- liftIO $ currentNodeEra nl
+        withRootKey @_ @s ctx wid pwd ErrWitnessTxWithRootKey $ \xprv scheme -> do
+            let pwdP = preparePassphrase scheme pwd
+            mapExceptT atomically $ do
+                let keyFrom txin = do
+                        addr <- getAddrFromUTxO txin
+                        (k, p) <- isOwned (getState cp) (xprv, pwdP) addr
+                        pure (addr, k, p)
+                let rewardAcnt = mkRwdAcct (xprv, pwdP)
+                withExceptT ErrWitnessTxSignTx $ ExceptT $ pure $ fmap snd $
+                    mkSignedTransaction tl era rewardAcnt keyFrom tx
 
   where
     db = ctx ^. dbLayer @IO @s @k
