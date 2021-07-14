@@ -162,6 +162,8 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TxOut (..)
     , TxStatus
     , inputs
+    , serialisedTx
+    , unsafeSealedTxFromBytes
     )
 import Cardano.Wallet.Primitive.Types.UTxO
     ( UTxO (..) )
@@ -331,15 +333,14 @@ unMockSerialisedTx = SerialisedTx . getHash
 mockSerialisedTx :: SerialisedTx -> MockSerialisedTx
 mockSerialisedTx = MockSerialisedTx . Hash . payload
 
--- TODO: ADP-909 This could be tricky
 newtype MockSealedTx = MockSealedTx { mockSealedTxId :: Hash "Tx" }
     deriving (Show, Eq, Generic, NFData)
 
 unMockSealedTx :: Hash "Tx" -> SealedTx
-unMockSealedTx = SealedTx . error "fixme: mock Tx" . getHash
+unMockSealedTx = unsafeSealedTxFromBytes . getHash
 
 mockSealedTx :: SealedTx -> MockSealedTx
-mockSealedTx = MockSealedTx . Hash . error "fixme: mock Tx" . getSealedTx
+mockSealedTx = MockSealedTx . Hash . serialisedTx
 
 {-
 data MockEra

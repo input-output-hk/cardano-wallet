@@ -78,7 +78,6 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TxMetadata
     , TxStatus (..)
     , sealedTxFromBytes
-    , sealedTxToBytes
     )
 import Control.Arrow
     ( left )
@@ -449,7 +448,7 @@ instance PersistFieldSql TxMetadata where
 -- SealedTx - store the serialised tx as a binary blob
 
 instance PersistField SealedTx where
-    toPersistValue = toPersistValue . sealedTxToBytes
+    toPersistValue = toPersistValue . serialisedTx
     fromPersistValue = fromPersistValue >=> first (T.pack . show) . sealedTxFromBytes
 
 instance PersistFieldSql SealedTx where

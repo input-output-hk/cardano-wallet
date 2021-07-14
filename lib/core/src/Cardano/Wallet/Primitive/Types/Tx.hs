@@ -7,6 +7,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Copyright: © 2018-2020 IOHK
@@ -33,10 +34,11 @@ module Cardano.Wallet.Primitive.Types.Tx
     , TokenBundleSizeAssessment (..)
 
     -- * Serialisation
-    , SealedTx (..)
-    , sealedTxToBytes
+    , SealedTx (serialisedTx, cardanoTx)
     , sealedTxFromBytes
+    , sealedTxFromCardano
     , sealedTxAsHex
+    , unsafeSealedTxFromBytes
     , SerialisedTx (..)
     , SerialisedTxParts (..)
 
@@ -137,6 +139,8 @@ import Data.Text.Class
     )
 import Data.Time.Clock
     ( UTCTime )
+import Data.Type.Equality
+    ( (:~:) (..), testEquality )
 import Data.Word
     ( Word32, Word64 )
 import Fmt
@@ -421,26 +425,34 @@ instance Buildable a => Buildable (WithDirection a) where
 
 -- | @SealedTx@ is a signed and serialised transaction that is ready to be
 -- submitted to the node.
--- TODO: ADP-909 this wrapper will disappear, leaving just Cardano.Tx
-newtype SealedTx = SealedTx { getSealedTx :: InAnyCardanoEra Cardano.Tx }
-    deriving stock (Generic)
+data SealedTx = SealedTx
+    { cardanoTx :: InAnyCardanoEra Cardano.Tx
+    , serialisedTx :: ByteString
+    } deriving stock (Generic)
 
 instance Show SealedTx where
-    show (SealedTx (InAnyCardanoEra _era tx)) = show tx
+    show (SealedTx (InAnyCardanoEra _era tx) _) = show tx
 
 instance Eq SealedTx where
-    (==) (SealedTx (InAnyCardanoEra _era1 _tx1))
-         (SealedTx (InAnyCardanoEra _era2 _tx2)) = False
+    SealedTx (InAnyCardanoEra e1 _) a == SealedTx (InAnyCardanoEra e2 _) b =
+        case testEquality e1 e2 of
+            Just Refl -> a == b
+            Nothing -> False
 
--- fixme: temp fix
 instance NFData SealedTx where
-    rnf = rnf . show
+    rnf = rnf . show  -- fixme: temp fix
 
-sealedTxToBytes :: SealedTx -> ByteString
-sealedTxToBytes (SealedTx (InAnyCardanoEra _ tx)) = Cardano.serialiseToCBOR tx
+cardanoTxToBytes :: InAnyCardanoEra Cardano.Tx -> ByteString
+cardanoTxToBytes (InAnyCardanoEra _era tx) = Cardano.serialiseToCBOR tx
 
-sealedTxFromBytes :: ByteString -> Either DecoderError SealedTx
-sealedTxFromBytes bs = SealedTx <$> asum
+sealedTxFromCardano :: InAnyCardanoEra Cardano.Tx -> SealedTx
+sealedTxFromCardano tx = SealedTx tx (cardanoTxToBytes tx)
+
+-- | Deserialise a Cardano transaction. The transaction can be in the format of
+-- any era. This function will try the most recent era first ('MaryEra'), then
+-- previous eras until 'ByronEra'.
+cardanoTxFromBytes :: ByteString -> Either DecoderError (InAnyCardanoEra Cardano.Tx)
+cardanoTxFromBytes bs = asum
     [ InAnyCardanoEra MaryEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsMaryEra) bs
     , InAnyCardanoEra AllegraEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsAllegraEra) bs
     , InAnyCardanoEra ShelleyEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsShelleyEra) bs
@@ -452,8 +464,20 @@ sealedTxFromBytes bs = SealedTx <$> asum
         ((e:_), []) -> Left e
         ([], []) -> undefined
 
+sealedTxFromBytes :: ByteString -> Either DecoderError SealedTx
+sealedTxFromBytes bs = SealedTx <$> cardanoTxFromBytes bs <*> pure bs
+
+-- | Only use this for tests.
+unsafeSealedTxFromBytes :: ByteString -> SealedTx
+unsafeSealedTxFromBytes bs = SealedTx
+    { cardanoTx = either bomb id $ cardanoTxFromBytes bs
+    , serialisedTx = bs
+    }
+  where
+    bomb err = error ("unsafeSealedTxFromBytes: " <> show err)
+
 sealedTxAsHex :: SealedTx -> Text
-sealedTxAsHex = T.decodeUtf8 . convertToBase Base16 . sealedTxToBytes
+sealedTxAsHex = T.decodeUtf8 . convertToBase Base16 . view #serialisedTx
 
 -- | A serialised transaction that may be only partially signed, or even
 -- invalid.
