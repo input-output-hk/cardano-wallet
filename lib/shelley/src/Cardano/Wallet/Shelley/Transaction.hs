@@ -54,7 +54,6 @@ import Cardano.Api
     , ByronEra
     , CardanoEra (..)
     , InAnyCardanoEra (..)
-    , InAnyShelleyBasedEra (..)
     , IsShelleyBasedEra (..)
     , NetworkId
     , SerialiseAsCBOR (..)
@@ -91,8 +90,6 @@ import Cardano.Wallet.Primitive.Types.Address
     ( Address (..) )
 import Cardano.Wallet.Primitive.Types.Coin
     ( Coin (..), addCoin, subtractCoin )
-import Cardano.Wallet.Primitive.Types.Hash
-    ( Hash (..) )
 import Cardano.Wallet.Primitive.Types.TokenBundle
     ( TokenBundle )
 import Cardano.Wallet.Primitive.Types.TokenMap
@@ -112,7 +109,6 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TxMetadata (..)
     , TxOut (..)
     , TxSize (..)
-    , sealedTxFromBytes
     , sealedTxFromCardano
     , txOutCoin
     , txOutMaxTokenQuantity
@@ -153,12 +149,8 @@ import Control.Arrow
     ( first, left, second )
 import Control.Monad
     ( forM )
-import Data.Bifunctor
-    ( bimap )
 import Data.ByteString
     ( ByteString )
-import Data.Coerce
-    ( coerce )
 import Data.Function
     ( (&) )
 import Data.Generics.Internal.VL.Lens
@@ -172,7 +164,7 @@ import Data.Quantity
 import Data.Set
     ( Set )
 import Data.Type.Equality
-    ( (:~:) (..), type (==), testEquality )
+    ( type (==) )
 import Data.Word
     ( Word16, Word64, Word8 )
 import Fmt
@@ -191,7 +183,6 @@ import qualified Cardano.Crypto.DSIGN as DSIGN
 import qualified Cardano.Crypto.Hash.Class as Crypto
 import qualified Cardano.Crypto.Wallet as Crypto.HD
 import qualified Cardano.Ledger.Core as SL
-import qualified Cardano.Ledger.Shelley.Constraints as Ledger
 import qualified Cardano.Wallet.Primitive.Types.Coin as Coin
 import qualified Cardano.Wallet.Primitive.Types.TokenBundle as TokenBundle
 import qualified Cardano.Wallet.Primitive.Types.TokenMap as TokenMap
@@ -206,10 +197,8 @@ import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
 import qualified Ouroboros.Consensus.Shelley.Ledger as O
-import qualified Ouroboros.Network.Block as O
 import qualified Shelley.Spec.Ledger.Address.Bootstrap as SL
 import qualified Shelley.Spec.Ledger.API as Ledger
-import qualified Shelley.Spec.Ledger.TxBody as Ledger
 
 
 -- | Type encapsulating what we need to know to add things -- payloads,
@@ -292,6 +281,9 @@ constructUnsignedTx networkId (md, certs) ttl rewardAcnt wdrl cs fee era =
     tx = mkUnsignedTx era ttl cs md wdrls certs (toCardanoLovelace fee)
     wdrls = mkWithdrawals networkId rewardAcnt wdrl
 
+sealedTxFromCardano' :: Cardano.IsCardanoEra era => ShelleyBasedEra era -> Cardano.Tx era -> SealedTx
+sealedTxFromCardano' _ = sealedTxFromCardano . InAnyCardanoEra Cardano.cardanoEra
+
 constructSignedTx
     :: forall k.
         ( TxWitnessTagFor k
@@ -310,11 +302,14 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
             Cardano.LegacyByronEra ->
                 Left ErrSignTxInvalidEra -- fixme: implement
             Cardano.ShelleyBasedEra era' ->
-                signShelley txEra (InAnyShelleyBasedEra era' tx)
+                fmap (sealedTxFromCardano' era') <$> signShelley era' tx
   where
     signShelley
-        :: CardanoEra era -> InAnyShelleyBasedEra Cardano.Tx -> Either ErrSignTx (Tx, SealedTx)
-    signShelley era (InAnyShelleyBasedEra txEra tx) = do
+        :: IsShelleyBasedEra era
+        => ShelleyBasedEra era
+        -> Cardano.Tx era
+        -> Either ErrSignTx (Tx, Cardano.Tx era)
+    signShelley era tx = do
         {--
         let (Cardano.ShelleyTxBody _ body scripts aux) = Cardano.getTxBody tx
 
@@ -323,17 +318,17 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
         let mkExtraWits = const []
         let body = undefined
         let areWdrls = False
-        let selectedInputs = undefined
+        let selectedInputs = []
 
         wits <- case txWitnessTagFor @k of
             TxWitnessShelleyUTxO -> do
                 addrWits <- forM selectedInputs $ \txin -> do
                     (_, k, pwd) <- lookupXPrv txin
-                    pure $ mkShelleyWitness body (getRawKey k, pwd)
+                    pure $ mkShelleyWitness era body (getRawKey k, pwd)
 
                 let wdrlsWits =
                         if areWdrls then
-                            [mkShelleyWitness body (rewardAcnt, pwdAcnt)]
+                            [mkShelleyWitness era body (rewardAcnt, pwdAcnt)]
                         else []
 
                 pure $ mkExtraWits body <> F.toList addrWits <> wdrlsWits
@@ -341,29 +336,19 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
             TxWitnessByronUTxO{} -> do
                 bootstrapWits <- forM selectedInputs $ \txin -> do
                     (addr, k, pwd) <- lookupXPrv txin
-                    pure $ mkByronWitness body networkId addr (getRawKey k, pwd)
+                    pure $ mkByronWitness era body networkId addr (getRawKey k, pwd)
                 pure $ F.toList bootstrapWits <> mkExtraWits body
 
         let signed = Cardano.makeSignedTransaction wits body
         let withResolvedInputs tx = tx
                 { resolvedInputs = second txOutCoin <$> F.toList selectedInputs
                 }
-        Right
-            ( withResolvedInputs (fromCardanoTx signed)
-            , sealedTxFromCardano (Cardano.InAnyCardanoEra era signed)
-            )
+        Right (withResolvedInputs (fromCardanoTx signed), signed)
 
     lookupXPrv
         :: TxIn
         -> Either ErrSignTx (Address, k 'AddressK XPrv, Passphrase "encryption")
     lookupXPrv txin = maybe (Left $ ErrSignTxKeyNotFoundForAddress txin) Right (keyFrom txin)
-
-deserialiseTx :: SerialisedTx -> Either ErrSignTx (InAnyCardanoEra Cardano.Tx)
-deserialiseTx = bimap mkErrSignTx (view #cardanoTx)
-    . sealedTxFromBytes
-    . view #payload
-  where
-    mkErrSignTx = ErrSignTxInvalidSerializedTx . T.pack . show
 
 sealShelleyTx
     :: forall era b c. (O.ShelleyBasedEra (Cardano.ShelleyLedgerEra era))
@@ -372,7 +357,7 @@ sealShelleyTx
     -> (Tx, SealedTx)
 sealShelleyTx _ _ = undefined
 
-fromCardanoTx :: Cardano.IsCardanoEra era => Cardano.Tx era -> Tx
+fromCardanoTx :: Cardano.IsShelleyBasedEra era => Cardano.Tx era -> Tx
 fromCardanoTx _ = error "TODO: ADP-909"
 
 mkTx
@@ -410,19 +395,19 @@ mkTx networkId payload ttl (rewardAcnt, pwdAcnt) keyFrom wdrl cs fees era = do
         TxWitnessShelleyUTxO -> do
             addrWits <- forM (inputsSelected cs) $ \(_, TxOut addr _) -> do
                 (k, pwd) <- lookupPrivateKey keyFrom addr
-                pure $ mkShelleyWitness unsigned (getRawKey k, pwd)
+                pure $ mkShelleyWitness' unsigned (getRawKey k, pwd)
 
             let wdrlsWits
                     | null wdrls = []
                     | otherwise =
-                      [mkShelleyWitness unsigned (rewardAcnt, pwdAcnt)]
+                      [mkShelleyWitness' unsigned (rewardAcnt, pwdAcnt)]
 
             pure $ mkExtraWits unsigned <> F.toList addrWits <> wdrlsWits
 
         TxWitnessByronUTxO{} -> do
             bootstrapWits <- forM (inputsSelected cs) $ \(_, TxOut addr _) -> do
                 (k, pwd) <- lookupPrivateKey keyFrom addr
-                pure $ mkByronWitness unsigned networkId addr (getRawKey k, pwd)
+                pure $ mkByronWitness' unsigned networkId addr (getRawKey k, pwd)
             pure $ F.toList bootstrapWits <> mkExtraWits unsigned
 
     let signed = Cardano.makeSignedTransaction wits unsigned
@@ -459,7 +444,7 @@ newTransactionLayer networkId = TransactionLayer
                     let stakeXPub = toXPub $ fst stakeCreds
                     let certs = mkDelegationCertificates action stakeXPub
                     let mkWits body =
-                            [ mkShelleyWitness body stakeCreds
+                            [ mkShelleyWitness' body stakeCreds
                             ]
                     let payload = TxPayload (view #txMetadata ctx) certs mkWits
                     let fees = case action of
@@ -1233,17 +1218,6 @@ withShelleyBasedEra era fn = case era of
     AnyCardanoEra MaryEra     -> fn ShelleyBasedEraMary
     AnyCardanoEra AlonzoEra   -> fn ShelleyBasedEraAlonzo
 
-withShelleyBasedEra'
-    :: forall a. ()
-    => AnyCardanoEra
-    -> (forall era. EraConstraints era => ShelleyBasedEra era -> Either ErrSignTx a)
-    -> Either ErrSignTx a
-withShelleyBasedEra' era fn = case era of
-    AnyCardanoEra ByronEra    -> Left $ ErrSignTxInvalidEra
-    AnyCardanoEra ShelleyEra  -> fn ShelleyBasedEraShelley
-    AnyCardanoEra AllegraEra  -> fn ShelleyBasedEraAllegra
-    AnyCardanoEra MaryEra     -> fn ShelleyBasedEraMary
-
 -- FIXME: Make this a Allegra or Shelley transaction depending on the era we're
 -- in. However, quoting Duncan:
 --
@@ -1384,10 +1358,23 @@ mkWithdrawals networkId acc amount
 
 mkShelleyWitness
     :: IsShelleyBasedEra era
+    => ShelleyBasedEra era
+    -> Cardano.TxBody era
+    -> (XPrv, Passphrase "encryption")
+    -> Cardano.KeyWitness era
+mkShelleyWitness era body key =
+    Cardano.makeShelleyKeyWitness body (unencrypt key)
+  where
+    unencrypt (xprv, pwd) = Cardano.WitnessPaymentExtendedKey
+        $ Cardano.PaymentExtendedSigningKey
+        $ Crypto.HD.xPrvChangePass pwd BS.empty xprv
+
+mkShelleyWitness'
+    :: IsShelleyBasedEra era
     => Cardano.TxBody era
     -> (XPrv, Passphrase "encryption")
     -> Cardano.KeyWitness era
-mkShelleyWitness body key =
+mkShelleyWitness' body key =
     Cardano.makeShelleyKeyWitness body (unencrypt key)
   where
     unencrypt (xprv, pwd) = Cardano.WitnessPaymentExtendedKey
@@ -1395,13 +1382,34 @@ mkShelleyWitness body key =
         $ Crypto.HD.xPrvChangePass pwd BS.empty xprv
 
 mkByronWitness
+    :: forall era. IsShelleyBasedEra era
+    => ShelleyBasedEra era
+    -> Cardano.TxBody era
+    -> Cardano.NetworkId
+    -> Address
+    -> (XPrv, Passphrase "encryption")
+    -> Cardano.KeyWitness era
+mkByronWitness era' body@(Cardano.ShelleyTxBody era _ _ _) nw addr key =
+    Cardano.ShelleyBootstrapWitness era $
+        SL.makeBootstrapWitness txHash (unencrypt key) addrAttr
+  where
+    txHash = Crypto.castHash $ Crypto.hashWith serialiseToCBOR body
+
+    unencrypt (xprv, pwd) = CC.SigningKey
+        $ Crypto.HD.xPrvChangePass pwd BS.empty xprv
+
+    addrAttr = Byron.mkAttributes $ Byron.AddrAttributes
+        (toHDPayloadAddress addr)
+        (Byron.toByronNetworkMagic nw)
+
+mkByronWitness'
     :: forall era. (EraConstraints era)
     => Cardano.TxBody era
     -> Cardano.NetworkId
     -> Address
     -> (XPrv, Passphrase "encryption")
     -> Cardano.KeyWitness era
-mkByronWitness (Cardano.ShelleyTxBody era body _scripts _scriptData _auxData) nw addr encryptedKey =
+mkByronWitness' (Cardano.ShelleyTxBody era body _scripts _auxData) nw addr encryptedKey =
     Cardano.ShelleyBootstrapWitness era $
         SL.makeBootstrapWitness txHash (unencrypt encryptedKey) addrAttr
   where
