@@ -113,6 +113,7 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TxOut (..)
     , TxSize (..)
     , sealedTxFromBytes
+    , sealedTxFromCardano
     , txOutCoin
     , txOutMaxTokenQuantity
     , txSizeDistance
@@ -347,7 +348,7 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom serialisedTx = do
                 }
         Right
             ( withResolvedInputs (fromCardanoTx signed)
-            , SealedTx (Cardano.InAnyCardanoEra era signed)
+            , sealedTxFromCardano (Cardano.InAnyCardanoEra era signed)
             )
 
     lookupXPrv
@@ -356,8 +357,9 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom serialisedTx = do
     lookupXPrv txin = maybe (Left $ ErrSignTxKeyNotFoundForAddress txin) Right (keyFrom txin)
 
 deserialiseTx :: SerialisedTx -> Either ErrSignTx (InAnyCardanoEra Cardano.Tx)
-deserialiseTx (SerialisedTx bs) = bimap mkErrSignTx getSealedTx $
-    sealedTxFromBytes bs
+deserialiseTx = bimap mkErrSignTx (view #cardanoTx)
+    . sealedTxFromBytes
+    . view #payload
   where
     mkErrSignTx = ErrSignTxInvalidSerializedTx . T.pack . show
 

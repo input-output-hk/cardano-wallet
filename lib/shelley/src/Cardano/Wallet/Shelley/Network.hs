@@ -66,7 +66,7 @@ import Cardano.Wallet.Primitive.Slotting
 import Cardano.Wallet.Primitive.SyncProgress
     ( SyncProgress (..), SyncTolerance )
 import Cardano.Wallet.Primitive.Types.Tx
-    ( sealedTxAsHex, sealedTxToBytes )
+    ( SealedTx (..), sealedTxAsHex )
 import Cardano.Wallet.Shelley.Compatibility
     ( AnyCardanoEra (..)
     , CardanoEra (..)
@@ -499,6 +499,8 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
                     SubmitFail err -> throwE $ ErrPostTxBadRequest $ T.pack (show err)
 
       where
+        -- fixme: we don't need to deserialise -- there is already a full
+        -- Cardano.Tx in SealedTx.
         unsealShelleyTx
             :: (HasCallStack, Shelley.ShelleyBasedEra (era c))
             => (GenTx (Shelley.ShelleyBlock (era c)) -> CardanoGenTx c)
@@ -507,7 +509,7 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
         unsealShelleyTx wrap = wrap
             . unsafeDeserialiseCbor fromCBOR
             . BL.fromStrict
-            . sealedTxToBytes
+            . serialisedTx
 
     _stakeDistribution queue coin = do
         liftIO $ traceWith tr $ MsgWillQueryRewardsForStake coin
