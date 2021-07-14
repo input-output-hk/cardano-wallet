@@ -4777,11 +4777,19 @@ paths:
 
         Mint and burn assets from the wallet.
 
+        We only support the simplest of scripts: those which require a signature
+        from a single key (known as the policy key). The policy key is generated
+        from the HD wallet according to to draft CIP-1855
+        (https://github.com/cardano-foundation/CIPs/blob/b2e9d02cb9a71ba9e754a432c78197428abf7e4c/CIP-1855/CIP-1855.md).
+
+        Once the policy key is generated, cardano-wallet creates a script from
+        that key, which we then mint or burn assets under.
+
         **⚠️ WARNING ⚠️**
 
-        Please note that due to the fact that there is no physical access to policy keys
-        under which assets are minted from the wallet it is currently not possible to add metadata
-        of such assets into [Cardano Token Registry](https://github.com/cardano-foundation/cardano-token-registry).
+        Please note that due to the fact that there is no physical access to
+        policy keys under which assets are minted from the wallet it is
+        currently not possible to add metadata of such assets into [Cardano Token Registry](https://github.com/cardano-foundation/cardano-token-registry).
 
       parameters:
         - *parametersWalletId
