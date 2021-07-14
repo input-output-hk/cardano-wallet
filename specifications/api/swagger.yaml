@@ -2980,7 +2980,7 @@ components:
       type: object
       required:
         - asset_name
-        - operations
+        - operation
       properties:
         monetary_policy_index:
           allOf:
