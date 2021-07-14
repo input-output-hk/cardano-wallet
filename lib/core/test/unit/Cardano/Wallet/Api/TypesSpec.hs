@@ -92,6 +92,7 @@ import Cardano.Wallet.Api.Types
     , ApiMintBurnOperation (..)
     , ApiMintData (..)
     , ApiMintedBurnedTransaction (..)
+    , ApiMintedBurnedInfo (..)
     , ApiMnemonicT (..)
     , ApiMultiDelegationAction (..)
     , ApiNetworkClock (..)
@@ -1976,15 +1977,26 @@ instance Arbitrary (ApiMintBurnOperation t) where
                 ]
 
 instance Arbitrary (ApiMintedBurnedTransaction t) where
+    arbitrary = ApiMintedBurnedTransaction <$> arbitrary <*> arbitrary
+
+instance Arbitrary ApiMintedBurnedInfo where
     arbitrary = do
-        tx <- arbitrary
         mpi <- arbitrary
         policyId <- arbitrary
         assetName <- arbitrary
         let
             subject = mkTokenFingerprint policyId assetName
+            script  =
+                RequireSignatureOf
+                    (KeyHash Payment $ getHash $ unTokenPolicyId policyId)
 
-        pure $ ApiMintedBurnedTransaction tx mpi (ApiT policyId) (ApiT assetName) (ApiT subject)
+        pure $ ApiMintedBurnedInfo
+            (ApiT mpi)
+            (ApiT policyId)
+            (ApiT assetName)
+            (ApiT subject)
+            (ApiT script)
+
 
 instance ToSchema (ApiMintedBurnedTransaction t) where
     declareNamedSchema _ = do

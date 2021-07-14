@@ -98,6 +98,7 @@ module Cardano.Wallet.Api.Types
     , ApiSignedTransaction (..)
     , ApiTransaction (..)
     , ApiMintedBurnedTransaction (..)
+    , ApiMintedBurnedInfo (..)
     , ApiWithdrawalPostData (..)
     , ApiMaintenanceAction (..)
     , ApiMaintenanceActionPostData (..)
