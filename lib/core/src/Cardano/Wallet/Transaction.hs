@@ -130,7 +130,7 @@ data TransactionLayer k = TransactionLayer
             -- Reward account
         -> (TxIn -> Maybe (Address, k 'AddressK XPrv, Passphrase "encryption"))
             -- Key store
-        -> SerialisedTx
+        -> SealedTx
             -- serialized unsigned transaction
         -> Either ErrSignTx (Tx, SealedTx)
         -- ^ Sign a transaction

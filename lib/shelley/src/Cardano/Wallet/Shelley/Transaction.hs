@@ -302,13 +302,15 @@ constructSignedTx
     -- ^ Reward account
     -> (TxIn -> Maybe (Address, k 'AddressK XPrv, Passphrase "encryption"))
     -- ^ Key store
-    -> SerialisedTx
+    -> SealedTx
     -> Either ErrSignTx (Tx, SealedTx)
-constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom serialisedTx = do
-    InAnyCardanoEra txEra tx <- deserialiseTx serialisedTx
-    case cardanoEraStyle txEra of
-        Cardano.LegacyByronEra -> Left ErrSignTxInvalidEra -- fixme: implement
-        Cardano.ShelleyBasedEra era' -> signShelley txEra (InAnyShelleyBasedEra era' tx)
+constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
+    case view #cardanoTx sealed of
+        InAnyCardanoEra txEra tx -> case cardanoEraStyle txEra of
+            Cardano.LegacyByronEra ->
+                Left ErrSignTxInvalidEra -- fixme: implement
+            Cardano.ShelleyBasedEra era' ->
+                signShelley txEra (InAnyShelleyBasedEra era' tx)
   where
     signShelley
         :: CardanoEra era -> InAnyShelleyBasedEra Cardano.Tx -> Either ErrSignTx (Tx, SealedTx)
@@ -323,7 +325,7 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom serialisedTx = do
         let areWdrls = False
         let selectedInputs = undefined
 
-        wits <- case (txWitnessTagFor @k) of
+        wits <- case txWitnessTagFor @k of
             TxWitnessShelleyUTxO -> do
                 addrWits <- forM selectedInputs $ \txin -> do
                     (_, k, pwd) <- lookupXPrv txin
@@ -467,8 +469,8 @@ newTransactionLayer networkId = TransactionLayer
                                 delta
                     mkTx networkId payload ttl stakeCreds keystore wdrl selection fees
 
-    , mkSignedTransaction = \era stakeCreds keystore serializedTx ->
-        constructSignedTx networkId stakeCreds keystore serializedTx
+    , mkSignedTransaction = \era stakeCreds keystore tx ->
+        constructSignedTx networkId stakeCreds keystore tx
 
     , mkUnsignedTransaction = \era stakeXPub pp ctx selection -> do
         let ttl   = txTimeToLive ctx

@@ -367,7 +367,6 @@ import Cardano.Wallet.Primitive.Types.Tx
     , LocalTxSubmissionStatus
     , SealedTx (..)
     , SerialisedTx (..)
-    , SerialisedTxParts (..)
     , TransactionInfo (..)
     , Tx
     , TxChange (..)
@@ -1554,9 +1553,9 @@ signTransaction
     -> ((k 'RootK XPrv, Passphrase "encryption") -> (XPrv, Passphrase "encryption"))
        -- ^ Reward account derived from the root key (or somewhere else).
     -> Passphrase "raw"
-    -> SerialisedTx
-    -> ExceptT ErrWitnessTx IO SerialisedTxParts
-signTransaction ctx wid mkRwdAcct pwd txSerialized = db & \DBLayer{..} -> do
+    -> SealedTx
+    -> ExceptT ErrWitnessTx IO SealedTx
+signTransaction ctx wid mkRwdAcct pwd tx = db & \DBLayer{..} -> do
     era <- liftIO $ currentNodeEra nl
     withRootKey @_ @s ctx wid pwd ErrWitnessTxWithRootKey $ \xprv scheme -> do
         let pwdP = preparePassphrase scheme pwd
@@ -1568,11 +1567,8 @@ signTransaction ctx wid mkRwdAcct pwd txSerialized = db & \DBLayer{..} -> do
             -- we need function that will take TxIn and return (Address, Prv, Passphrase)
             let keyFrom = undefined--isOwned (getState cp) (xprv, pwdP)
             let rewardAcnt = mkRwdAcct (xprv, pwdP)
-            _ <- withExceptT ErrWitnessTxSignTx $ ExceptT $ pure $
-                 mkSignedTransaction tl era rewardAcnt keyFrom txSerialized
-            let tx = mempty
-            let (SerialisedTx txBody) = txSerialized
-            pure $ SerialisedTxParts tx txBody []
+            withExceptT ErrWitnessTxSignTx $ ExceptT $ pure $ fmap snd $
+                 mkSignedTransaction tl era rewardAcnt keyFrom tx
 
   where
     db = ctx ^. dbLayer @IO @s @k

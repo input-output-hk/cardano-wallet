@@ -417,6 +417,7 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TxOut (..)
     , TxStatus (..)
     , UnsignedTx (..)
+    , getSerialisedTxParts
     , txOutCoin
     )
 import Cardano.Wallet.Registry
@@ -1794,20 +1795,19 @@ signTransaction
     -> Handler ApiSignedTransaction
 signTransaction ctx (ApiT wid) body = do
     let pwd = coerce $ body ^. #passphrase . #getApiT
-    -- TODO: decode tx
-    let txBody = body ^. #transaction . #getApiBytesT . #payload
+    let tx = body ^. #transaction . #getApiT
 
     -- (_, mkRwdAcct) <- mkRewardAccountBuilder @_ @s @_ @n ctx wid Nothing
     let stubRwdAcct = first getRawKey
 
-    _tx <- withWorkerCtx ctx wid liftE liftE $ \wrk ->
-        liftHandler $ W.signTransaction @_ @s @k wrk wid stubRwdAcct pwd (SerialisedTx txBody)
+    tx <- withWorkerCtx ctx wid liftE liftE $ \wrk ->
+        liftHandler $ W.signTransaction @_ @s @k wrk wid stubRwdAcct pwd tx
 
-    -- fullTx <- liftIO . W.joinSerialisedTxParts @_ @k ctx tx
+    let (txBody, txWits) = getSerialisedTxParts tx
     pure $ Api.ApiSignedTransaction
-        { transaction = mempty -- TODO: join parts
+        { transaction = ApiT tx
         , body = ApiBytesT txBody
-        , witnesses = []
+        , witnesses = ApiBytesT <$> txWits
         }
 
 postTransactionOld
