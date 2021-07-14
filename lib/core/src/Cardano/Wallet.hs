@@ -1546,7 +1546,6 @@ signTransaction
     :: forall ctx s k.
         ( HasTransactionLayer k ctx
         , HasDBLayer IO s k ctx
-        , HasNetworkLayer IO ctx
         , IsOwned s k
         )
     => ctx
@@ -1563,7 +1562,6 @@ signTransaction ctx wid mkRwdAcct pwd tx = do
     let getAddrFromTxOut (TxOut addr _) = addr
     let getAddrFromUTxO txin = getAddrFromTxOut <$> Map.lookup txin (getUTxO utxo)
     db & \DBLayer{..} -> do
-        era <- liftIO $ currentNodeEra nl
         withRootKey @_ @s ctx wid pwd ErrWitnessTxWithRootKey $ \xprv scheme -> do
             let pwdP = preparePassphrase scheme pwd
             mapExceptT atomically $ do
@@ -1573,12 +1571,11 @@ signTransaction ctx wid mkRwdAcct pwd tx = do
                         pure (addr, k, p)
                 let rewardAcnt = mkRwdAcct (xprv, pwdP)
                 withExceptT ErrWitnessTxSignTx $ ExceptT $ pure $ fmap snd $
-                    mkSignedTransaction tl era rewardAcnt keyFrom tx
+                    mkSignedTransaction tl rewardAcnt keyFrom tx
 
   where
     db = ctx ^. dbLayer @IO @s @k
     tl = ctx ^. transactionLayer @k
-    nl = ctx ^. networkLayer
 
 -- | Produce witnesses and construct a transaction from a given selection.
 --

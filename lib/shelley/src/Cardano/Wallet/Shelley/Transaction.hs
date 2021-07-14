@@ -458,7 +458,7 @@ newTransactionLayer networkId = TransactionLayer
                                 delta
                     mkTx networkId payload ttl stakeCreds keystore wdrl selection fees
 
-    , mkSignedTransaction = \era stakeCreds keystore tx ->
+    , mkSignedTransaction = \stakeCreds keystore tx ->
         constructSignedTx networkId stakeCreds keystore tx
 
     , mkUnsignedTransaction = \era stakeXPub pp ctx selection -> do

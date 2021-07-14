@@ -124,9 +124,7 @@ data TransactionLayer k = TransactionLayer
         -- The function returns CBOR-ed transaction body to be signed in another step.
 
     , mkSignedTransaction
-        :: AnyCardanoEra
-            -- Era for which the transaction should be created.
-        -> (XPrv, Passphrase "encryption")
+        :: (XPrv, Passphrase "encryption")
             -- Reward account
         -> (TxIn -> Maybe (Address, k 'AddressK XPrv, Passphrase "encryption"))
             -- Key store
