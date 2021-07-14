@@ -66,7 +66,7 @@ import Cardano.Wallet.Primitive.Slotting
 import Cardano.Wallet.Primitive.SyncProgress
     ( SyncProgress (..), SyncTolerance )
 import Cardano.Wallet.Primitive.Types.Tx
-    ( SealedTx (..), sealedTxAsHex )
+    ( SealedTx (..) )
 import Cardano.Wallet.Shelley.Compatibility
     ( AnyCardanoEra (..)
     , CardanoEra (..)
@@ -157,7 +157,7 @@ import Data.Time.Clock
 import Data.Void
     ( Void )
 import Fmt
-    ( Buildable (..), fmt, listF, mapF, pretty )
+    ( Buildable (..), fmt, hexF, listF, mapF, pretty, (+|), (|+) )
 import GHC.Stack
     ( HasCallStack )
 import Network.Mux
@@ -1234,10 +1234,8 @@ instance ToText NetworkLayerLog where
             ]
         MsgIntersectionFound point -> T.unwords
             [ "Intersection found:", pretty point ]
-        MsgPostTx tx -> T.unwords
-            [ "Posting transaction, serialized as:"
-            , sealedTxAsHex tx
-            ]
+        MsgPostTx tx ->
+            "Posting transaction, serialized as:\n"+|hexF (serialisedTx tx)|+""
         MsgLocalStateQuery client msg ->
             T.pack (show client <> " " <> show msg)
         MsgNodeTip bh -> T.unwords

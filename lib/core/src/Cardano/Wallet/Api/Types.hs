@@ -90,7 +90,6 @@ module Cardano.Wallet.Api.Types
     , ApiSignTransactionPostData (..)
     , PostTransactionOldData (..)
     , PostTransactionFeeOldData (..)
-    , ApiSerialisedTransaction (..)
     , ApiSignedTransaction (..)
     , ApiTransaction (..)
     , ApiWithdrawalPostData (..)
@@ -316,6 +315,7 @@ import Control.Monad
     ( guard, when, (<=<), (>=>) )
 import Data.Aeson.Types
     ( FromJSON (..)
+    , Parser
     , SumEncoding (..)
     , ToJSON (..)
     , Value (Object, String)
@@ -931,11 +931,6 @@ data PostTransactionFeeOldData (n :: NetworkDiscriminant) = PostTransactionFeeOl
     } deriving (Eq, Generic, Show)
 
 type ApiBase64 = ApiBytesT 'Base64 ByteString
-
-newtype ApiSerialisedTransaction = ApiSerialisedTransaction
-    { transaction :: ApiBytesT 'Base64 SerialisedTx
-    } deriving stock (Eq, Generic, Show)
-    deriving newtype NFData
 
 data ApiSignedTransaction = ApiSignedTransaction
     { transaction :: ApiT SealedTx
@@ -2490,17 +2485,17 @@ instance (HasBase base, ByteArrayAccess bs) => ToJSON (ApiBytesT base bs) where
     toJSON = String . toText @(ApiBytesT base bs)
 
 instance FromJSON (ApiT SealedTx) where
-    parseJSON = (eitherToParser . bimap ShowFmt ApiT . sealedTxFromBytes)
-        <=< (fmap getApiBytesT . parseJSON @(ApiBytesT 'Base64 ByteString))
+    parseJSON = fmap ApiT . parseSealedTxBytes @'Base64
 
 instance ToJSON (ApiT SealedTx) where
-    toJSON = toJSON . ApiBytesT @'Base64 . view #serialisedTx . view #getApiT
+    toJSON = sealedTxBytesValue @'Base64 . getApiT
 
-instance FromJSON ApiSerialisedTransaction where
-    parseJSON = genericParseJSON defaultRecordTypeOptions
+parseSealedTxBytes :: forall (base :: Base). HasBase base => Value -> Parser SealedTx
+parseSealedTxBytes = (eitherToParser . first ShowFmt . sealedTxFromBytes)
+        <=< (fmap getApiBytesT . parseJSON @(ApiBytesT base ByteString))
 
-instance ToJSON ApiSerialisedTransaction where
-    toJSON = genericToJSON defaultRecordTypeOptions
+sealedTxBytesValue :: forall (base :: Base). HasBase base => SealedTx -> Value
+sealedTxBytesValue = toJSON . ApiBytesT @base . view #serialisedTx
 
 instance FromJSON ApiSignedTransaction where
     parseJSON = genericParseJSON defaultRecordTypeOptions

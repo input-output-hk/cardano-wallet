@@ -1803,7 +1803,7 @@ signTransaction ctx (ApiT wid) body = do
     signed <- withWorkerCtx ctx wid liftE liftE $ \wrk ->
         liftHandler $ W.signTransaction @_ @s @k wrk wid stubRwdAcct pwd tx
 
-    let (txBody, txWits) = getSerialisedTxParts signed
+    let W.SerialisedTxParts txBody txWits = getSerialisedTxParts signed
     pure $ Api.ApiSignedTransaction
         { transaction = ApiT signed
         , body = ApiBytesT txBody

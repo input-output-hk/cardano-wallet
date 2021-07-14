@@ -37,7 +37,6 @@ module Cardano.Wallet.Primitive.Types.Tx
     , SealedTx (serialisedTx, cardanoTx)
     , sealedTxFromBytes
     , sealedTxFromCardano
-    , sealedTxAsHex
     , getSerialisedTxParts
     , unsafeSealedTxFromBytes
     , SerialisedTx (..)
@@ -78,6 +77,8 @@ import Cardano.Api
     , InAnyCardanoEra (..)
     , TxMetadata (..)
     , TxMetadataValue (..)
+    , deserialiseFromCBOR
+    , serialiseToCBOR
     )
 import Cardano.Binary
     ( DecoderError )
@@ -107,8 +108,6 @@ import Data.Bifunctor
     ( first )
 import Data.ByteArray
     ( ByteArray, ByteArrayAccess )
-import Data.ByteArray.Encoding
-    ( Base (..), convertToBase )
 import Data.ByteString
     ( ByteString )
 import Data.Either
@@ -129,8 +128,6 @@ import Data.Quantity
     ( Quantity (..) )
 import Data.Set
     ( Set )
-import Data.Text
-    ( Text )
 import Data.Text.Class
     ( CaseStyle (..)
     , FromText (..)
@@ -166,7 +163,6 @@ import qualified Cardano.Wallet.Primitive.Types.TokenBundle as TokenBundle
 import qualified Cardano.Wallet.Primitive.Types.TokenMap as TokenMap
 import qualified Data.Map.Strict as Map
 import qualified Data.Set as Set
-import qualified Data.Text.Encoding as T
 import qualified Data.Text.Lazy.Builder as Builder
 
 -- | Primitive @Tx@-type.
@@ -445,21 +441,22 @@ instance Eq SealedTx where
 instance NFData SealedTx where
     rnf = rnf . show  -- fixme: temp fix
 
-cardanoTxToBytes :: InAnyCardanoEra Cardano.Tx -> ByteString
-cardanoTxToBytes (InAnyCardanoEra _era tx) = Cardano.serialiseToCBOR tx
-
+-- | Construct a 'SealedTx' from a "Cardano.Api" transaction.
 sealedTxFromCardano :: InAnyCardanoEra Cardano.Tx -> SealedTx
 sealedTxFromCardano tx = SealedTx tx (cardanoTxToBytes tx)
+  where
+    cardanoTxToBytes :: InAnyCardanoEra Cardano.Tx -> ByteString
+    cardanoTxToBytes (InAnyCardanoEra _era tx) = Cardano.serialiseToCBOR tx
 
 -- | Deserialise a Cardano transaction. The transaction can be in the format of
 -- any era. This function will try the most recent era first ('MaryEra'), then
 -- previous eras until 'ByronEra'.
 cardanoTxFromBytes :: ByteString -> Either DecoderError (InAnyCardanoEra Cardano.Tx)
 cardanoTxFromBytes bs = asum
-    [ InAnyCardanoEra MaryEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsMaryEra) bs
-    , InAnyCardanoEra AllegraEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsAllegraEra) bs
-    , InAnyCardanoEra ShelleyEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsShelleyEra) bs
-    , InAnyCardanoEra ByronEra <$> Cardano.deserialiseFromCBOR (Cardano.AsTx Cardano.AsByronEra) bs
+    [ InAnyCardanoEra MaryEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsMaryEra) bs
+    , InAnyCardanoEra AllegraEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsAllegraEra) bs
+    , InAnyCardanoEra ShelleyEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsShelleyEra) bs
+    , InAnyCardanoEra ByronEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsByronEra) bs
     ]
   where
     asum xs = case partitionEithers xs of
@@ -467,6 +464,7 @@ cardanoTxFromBytes bs = asum
         ((e:_), []) -> Left e
         ([], []) -> undefined
 
+-- | Deserialise a transaction to construct a 'SealedTx'.
 sealedTxFromBytes :: ByteString -> Either DecoderError SealedTx
 sealedTxFromBytes bs = SealedTx <$> cardanoTxFromBytes bs <*> pure bs
 
@@ -479,12 +477,12 @@ unsafeSealedTxFromBytes bs = SealedTx
   where
     bomb err = error ("unsafeSealedTxFromBytes: " <> show err)
 
-sealedTxAsHex :: SealedTx -> Text
-sealedTxAsHex = T.decodeUtf8 . convertToBase Base16 . view #serialisedTx
-
 -- | Get the serialised transaction body and witnesses from a 'SealedTx'.
-getSerialisedTxParts :: SealedTx -> (ByteString, [ByteString])
-getSerialisedTxParts (SealedTx _tx _) = (mempty, mempty) -- fixme: ADP-909 implement
+getSerialisedTxParts :: SealedTx -> SerialisedTxParts
+getSerialisedTxParts (SealedTx (InAnyCardanoEra _ tx) _) = SerialisedTxParts
+    { serialisedTxBody = serialiseToCBOR $ Cardano.getTxBody tx
+    , serialisedTxWitnesses = serialiseToCBOR <$> Cardano.getTxWitnesses tx
+    }
 
 -- | A serialised transaction that may be only partially signed, or even
 -- invalid.
@@ -496,8 +494,7 @@ newtype SerialisedTx = SerialisedTx { payload :: ByteString }
 -- incomplete set of serialised witnesses, along with an encoding of the
 -- combined transaction.
 data SerialisedTxParts = SerialisedTxParts
-    { serialisedTx :: ByteString
-    , serialisedTxBody :: ByteString
+    { serialisedTxBody :: ByteString
     , serialisedTxWitnesses :: [ByteString]
     } deriving stock (Show, Eq, Generic)
 

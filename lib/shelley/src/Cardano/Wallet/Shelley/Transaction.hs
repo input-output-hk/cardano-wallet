@@ -90,6 +90,8 @@ import Cardano.Wallet.Primitive.Types.Address
     ( Address (..) )
 import Cardano.Wallet.Primitive.Types.Coin
     ( Coin (..), addCoin, subtractCoin )
+import Cardano.Wallet.Primitive.Types.Hash
+    ( Hash (Hash) )
 import Cardano.Wallet.Primitive.Types.TokenBundle
     ( TokenBundle )
 import Cardano.Wallet.Primitive.Types.TokenMap
@@ -151,6 +153,8 @@ import Control.Monad
     ( forM )
 import Data.ByteString
     ( ByteString )
+import Data.Coerce
+    ( coerce )
 import Data.Function
     ( (&) )
 import Data.Generics.Internal.VL.Lens
@@ -169,6 +173,8 @@ import Data.Word
     ( Word16, Word64, Word8 )
 import Fmt
     ( Buildable, pretty )
+import GHC.Records
+    ( getField )
 import GHC.Stack
     ( HasCallStack )
 import Ouroboros.Network.Block
@@ -281,9 +287,6 @@ constructUnsignedTx networkId (md, certs) ttl rewardAcnt wdrl cs fee era =
     tx = mkUnsignedTx era ttl cs md wdrls certs (toCardanoLovelace fee)
     wdrls = mkWithdrawals networkId rewardAcnt wdrl
 
-sealedTxFromCardano' :: Cardano.IsCardanoEra era => ShelleyBasedEra era -> Cardano.Tx era -> SealedTx
-sealedTxFromCardano' _ = sealedTxFromCardano . InAnyCardanoEra Cardano.cardanoEra
-
 constructSignedTx
     :: forall k.
         ( TxWitnessTagFor k
@@ -302,7 +305,7 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
             Cardano.LegacyByronEra ->
                 Left ErrSignTxInvalidEra -- fixme: implement
             Cardano.ShelleyBasedEra era' ->
-                fmap (sealedTxFromCardano' era') <$> signShelley era' tx
+                fmap sealedTxFromCardano' <$> signShelley era' tx
   where
     signShelley
         :: IsShelleyBasedEra era
@@ -310,15 +313,18 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
         -> Cardano.Tx era
         -> Either ErrSignTx (Tx, Cardano.Tx era)
     signShelley era tx = do
-        {--
-        let (Cardano.ShelleyTxBody _ body scripts aux) = Cardano.getTxBody tx
+        let body = Cardano.getTxBody tx
+        let (Cardano.ShelleyTxBody _ ledgerBody _scripts _aux) = body
 
-        let areWdrls = Cardano.txWithdrawals body /= Cardano.TxWithdrawalsNone
-        --}
         let mkExtraWits = const []
-        let body = undefined
-        let areWdrls = False
+
+        -- let Ledger.TxBody ins _ _ wdrls _ _ _ _ = ledgerBody
+        let areWdrls = False  -- Cardano.txWithdrawals body /= Cardano.TxWithdrawalsNone
+
         let selectedInputs = []
+        -- let selectedInputs =
+        --         [ TxIn (Hash $ coerce h) (fromIntegral ix)
+        --         | Ledger.TxIn (Ledger.TxId h) ix <- Set.toList ins ]
 
         wits <- case txWitnessTagFor @k of
             TxWitnessShelleyUTxO -> do
@@ -341,7 +347,7 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
 
         let signed = Cardano.makeSignedTransaction wits body
         let withResolvedInputs tx = tx
-                { resolvedInputs = second txOutCoin <$> F.toList selectedInputs
+                { resolvedInputs = (, Coin 0) <$> selectedInputs -- fixme: resolve inputs
                 }
         Right (withResolvedInputs (fromCardanoTx signed), signed)
 
@@ -350,15 +356,18 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
         -> Either ErrSignTx (Address, k 'AddressK XPrv, Passphrase "encryption")
     lookupXPrv txin = maybe (Left $ ErrSignTxKeyNotFoundForAddress txin) Right (keyFrom txin)
 
+sealedTxFromCardano' :: Cardano.IsCardanoEra era => Cardano.Tx era -> SealedTx
+sealedTxFromCardano' = sealedTxFromCardano . InAnyCardanoEra Cardano.cardanoEra
+
 sealShelleyTx
     :: forall era b c. (O.ShelleyBasedEra (Cardano.ShelleyLedgerEra era))
     => (Ledger.Tx (Cardano.ShelleyLedgerEra era) -> (Tx, b, c))
     -> Cardano.Tx era
     -> (Tx, SealedTx)
-sealShelleyTx _ _ = undefined
+sealShelleyTx _ _ = error "unimplemented" -- TODO: ADP-909
 
 fromCardanoTx :: Cardano.IsShelleyBasedEra era => Cardano.Tx era -> Tx
-fromCardanoTx _ = error "TODO: ADP-909"
+fromCardanoTx _ = error "unimplemented" -- TODO: ADP-909
 
 mkTx
     :: forall k era.
