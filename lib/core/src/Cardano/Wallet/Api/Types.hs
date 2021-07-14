@@ -3389,8 +3389,8 @@ instance ToJSON (ApiT SmashServer) where
 -- minting and burning using transactions, so some of these fields are shared
 -- with @PostTransactionData@.
 data PostMintBurnAssetData (n :: NetworkDiscriminant) = PostMintBurnAssetData
-    { mintBurn   :: !(ApiMintBurnData n)
-    -- ^ Minting and burning request.
+    { mintBurn   :: !(NonEmpty (ApiMintBurnData n))
+    -- ^ Minting and burning requests.
     , passphrase :: !(ApiT (Passphrase "lenient"))
     -- ^ Passphrase of the wallet.
     , metadata   :: !(Maybe (ApiT TxMetadata))
@@ -3420,8 +3420,8 @@ data ApiMintBurnData (n :: NetworkDiscriminant) = ApiMintBurnData
     -- ^ The key derivation index to use to construct the policy.
     , assetName           :: !(ApiT W.TokenName)
     -- ^ The name of the asset to mint/burn.
-    , operations          :: !(NonEmpty (ApiMintBurnOperation n))
-    -- ^ The set of minting and burning operations to perform.
+    , operation           :: !(ApiMintBurnOperation n)
+    -- ^ The minting or burning operation to perform.
     } deriving (Eq, Generic, Show)
 
 instance DecodeAddress n => FromJSON (ApiMintBurnData n) where

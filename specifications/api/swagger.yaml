@@ -2971,10 +2971,7 @@ components:
             - type: string
               default: 0
         asset_name: *assetName
-        operations:
-          type: array
-          items: *ApiMintBurnOperation
-          minItems: 1
+        operation: *ApiMintBurnOperation
 
     ApiPostMintBurnAssetData: &ApiPostMintBurnAssetData
       type: object
@@ -2982,7 +2979,10 @@ components:
         - mint_burn
         - passphrase
       properties:
-        mint_burn: *ApiMintBurnData
+        mint_burn:
+          type: array
+          items: *ApiMintBurnData
+          minItems: 1
         passphrase:
           <<: *lenientPassphrase
           description: The wallet's master passphrase.
