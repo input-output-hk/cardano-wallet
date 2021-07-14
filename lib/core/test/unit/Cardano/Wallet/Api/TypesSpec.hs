@@ -90,8 +90,8 @@ import Cardano.Wallet.Api.Types
     , ApiMaintenanceActionPostData (..)
     , ApiMintBurnData (..)
     , ApiMintBurnOperation (..)
-    , ApiMintBurnTransaction (..)
     , ApiMintData (..)
+    , ApiMintedBurnedTransaction (..)
     , ApiMnemonicT (..)
     , ApiMultiDelegationAction (..)
     , ApiNetworkClock (..)
@@ -1975,7 +1975,7 @@ instance Arbitrary (ApiMintBurnOperation t) where
                 , ApiBurn <$> arbitrary
                 ]
 
-instance Arbitrary (ApiMintBurnTransaction t) where
+instance Arbitrary (ApiMintedBurnedTransaction t) where
     arbitrary = do
         tx <- arbitrary
         mpi <- arbitrary
@@ -1984,12 +1984,12 @@ instance Arbitrary (ApiMintBurnTransaction t) where
         let
             subject = mkTokenFingerprint policyId assetName
 
-        pure $ ApiMintBurnTransaction tx mpi (ApiT policyId) (ApiT assetName) (ApiT subject)
+        pure $ ApiMintedBurnedTransaction tx mpi (ApiT policyId) (ApiT assetName) (ApiT subject)
 
-instance ToSchema (ApiMintBurnTransaction t) where
+instance ToSchema (ApiMintedBurnedTransaction t) where
     declareNamedSchema _ = do
         addDefinition =<< declareSchemaForDefinition "TransactionMetadataValue"
-        declareSchemaForDefinition "ApiMintBurnTransaction"
+        declareSchemaForDefinition "ApiMintedBurnedTransaction"
 
 instance Arbitrary TokenPolicyId where
     arbitrary = UnsafeTokenPolicyId . Hash . BS.pack <$> vector 28

@@ -97,7 +97,7 @@ module Cardano.Wallet.Api.Types
     , ApiSerialisedTransaction (..)
     , ApiSignedTransaction (..)
     , ApiTransaction (..)
-    , ApiMintBurnTransaction (..)
+    , ApiMintedBurnedTransaction (..)
     , ApiWithdrawalPostData (..)
     , ApiMaintenanceAction (..)
     , ApiMaintenanceActionPostData (..)
@@ -206,7 +206,7 @@ module Cardano.Wallet.Api.Types
     , ApiConstructTransactionDataT
     , PostTransactionOldDataT
     , PostTransactionFeeOldDataT
-    , ApiMintBurnTransactionT
+    , ApiMintedBurnedTransactionT
     , ApiWalletMigrationPlanPostDataT
     , ApiWalletMigrationPostDataT
     , PostMintBurnAssetDataT
@@ -1036,10 +1036,18 @@ data ApiTransaction (n :: NetworkDiscriminant) = ApiTransaction
 
 -- | The response cardano-wallet returns upon successful submission of a
 -- mint/burn transaction.
-data ApiMintBurnTransaction (n :: NetworkDiscriminant) = ApiMintBurnTransaction
-    { transaction         :: !(ApiTransaction n)
-    -- ^ Information about the mint/burn transaction.
-    , monetaryPolicyIndex :: !(ApiT DerivationIndex)
+data ApiMintedBurnedTransaction (n :: NetworkDiscriminant) = ApiMintedBurnedTransaction
+    { transaction :: !(ApiTransaction n)
+    -- ^ Information about the mint/burn transaction itself.
+    , mintedBurned :: !(NonEmpty (ApiT ApiMintedBurnedInfo))
+    -- ^ Helpful information about each unique asset minted or burned (where the
+    -- identity is the policyId + asset name of the asset).
+    }
+    deriving (Eq, Generic, Show)
+    deriving anyclass NFData
+
+data ApiMintedBurnedInfo = ApiMintedBurnedInfo
+    { monetaryPolicyIndex :: !(ApiT DerivationIndex)
     -- ^ The monetary policy index the asset was minted/burnt under.
     , policyId            :: !(ApiT W.TokenPolicyId)
     -- ^ The policy ID the asset was minted/burnt under.
@@ -1048,9 +1056,10 @@ data ApiMintBurnTransaction (n :: NetworkDiscriminant) = ApiMintBurnTransaction
     , subject             :: !(ApiT W.TokenFingerprint)
     -- ^ The subject of the asset minted/burnt. This is useful to users wishing
     -- to attach metadata to their asset.
-    }
-    deriving (Eq, Generic, Show)
-    deriving anyclass NFData
+    , script              :: !(ApiT (Script KeyHash))
+    -- ^ The script which this asset was minted and/or burned under
+    } deriving (Eq, Generic, Show)
+      deriving anyclass NFData
 
 newtype ApiTxMetadata = ApiTxMetadata
     { getApiTxMetadata :: Maybe (ApiT TxMetadata)
@@ -2580,13 +2589,13 @@ instance (EncodeAddress t, EncodeStakeAddress t) => ToJSON (ApiConstructTransact
 instance
     ( DecodeAddress n
     , DecodeStakeAddress n
-    ) => FromJSON (ApiMintBurnTransaction n) where
+    ) => FromJSON (ApiMintedBurnedTransaction n) where
     parseJSON = genericParseJSON defaultRecordTypeOptions
 
 instance
     ( EncodeAddress n
     , EncodeStakeAddress n
-    ) => ToJSON (ApiMintBurnTransaction n) where
+    ) => ToJSON (ApiMintedBurnedTransaction n) where
     toJSON = genericToJSON defaultRecordTypeOptions
 
 instance FromJSON ApiWithdrawalPostData where
@@ -3288,7 +3297,7 @@ type family ApiConstructTransactionT (n :: k) :: Type
 type family ApiConstructTransactionDataT (n :: k) :: Type
 type family PostTransactionOldDataT (n :: k) :: Type
 type family PostTransactionFeeOldDataT (n :: k) :: Type
-type family ApiMintBurnTransactionT (n :: k) :: Type
+type family ApiMintedBurnedTransactionT (n :: k) :: Type
 type family PostMintBurnAssetDataT (n :: k) :: Type
 type family ApiWalletMigrationPlanPostDataT (n :: k) :: Type
 type family ApiWalletMigrationPostDataT (n :: k1) (s :: k2) :: Type
@@ -3335,8 +3344,8 @@ type instance ApiWalletMigrationPlanPostDataT (n :: NetworkDiscriminant) =
 type instance ApiWalletMigrationPostDataT (n :: NetworkDiscriminant) (s :: Symbol) =
     ApiWalletMigrationPostData n s
 
-type instance ApiMintBurnTransactionT (n :: NetworkDiscriminant) =
-    ApiMintBurnTransaction n
+type instance ApiMintedBurnedTransactionT (n :: NetworkDiscriminant) =
+    ApiMintedBurnedTransaction n
 
 {-------------------------------------------------------------------------------
                          SMASH interfacing types
@@ -3491,3 +3500,19 @@ instance DecodeAddress n => FromJSON (ApiMintBurnOperation n) where
                 pure $ ApiBurn burn
             (Just _mints , Just _burn) ->
                 fail "Each operation may either be a mint or a burn, not both"
+
+instance FromJSON ApiMintedBurnedInfo where
+    parseJSON = genericParseJSON defaultRecordTypeOptions
+
+instance ToJSON ApiMintedBurnedInfo where
+    toJSON = genericToJSON defaultRecordTypeOptions
+
+instance FromJSON (ApiT ApiMintedBurnedInfo) where
+    parseJSON = fmap ApiT . parseJSON
+instance ToJSON (ApiT ApiMintedBurnedInfo) where
+    toJSON = toJSON . getApiT
+
+instance FromJSON (ApiT (Script KeyHash)) where
+    parseJSON = parseJSON
+instance ToJSON (ApiT (Script KeyHash)) where
+    toJSON = toJSON

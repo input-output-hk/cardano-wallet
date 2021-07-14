@@ -174,7 +174,7 @@ import Cardano.Wallet.Api.Types
     , ApiHealthCheck
     , ApiMaintenanceAction
     , ApiMaintenanceActionPostData
-    , ApiMintBurnTransactionT
+    , ApiMintedBurnedTransactionT
     , ApiNetworkClock
     , ApiNetworkInformation
     , ApiNetworkParameters
@@ -457,7 +457,7 @@ type MintBurnAssets n = "wallets"
     :> Capture "walletId" (ApiT WalletId)
     :> "assets"
     :> ReqBody '[JSON] (PostMintBurnAssetDataT n)
-    :> PostAccepted '[JSON] (ApiMintBurnTransactionT n)
+    :> PostAccepted '[JSON] (ApiMintedBurnedTransactionT n)
 
 {-------------------------------------------------------------------------------
                                   Addresses

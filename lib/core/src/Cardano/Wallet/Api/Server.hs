@@ -206,7 +206,7 @@ import Cardano.Wallet.Api.Types
     , ApiErrorCode (..)
     , ApiFee (..)
     , ApiForeignStakeKey (..)
-    , ApiMintBurnTransaction (..)
+    , ApiMintedBurnedTransaction (..)
     , ApiMnemonicT (..)
     , ApiNetworkClock (..)
     , ApiNetworkInformation
@@ -3809,6 +3809,6 @@ mintBurnAssets
      . ctx
     -> ApiT WalletId
     -> Api.PostMintBurnAssetData n
-    -> Handler (ApiMintBurnTransaction n)
+    -> Handler (ApiMintedBurnedTransaction n)
 mintBurnAssets _ctx (ApiT _wid) _body =
     error "Minting and burning are not supported - this is just a stub"

@@ -2907,20 +2907,37 @@ components:
 
         "none": *ApiNullStakeKey
 
-    ApiMintBurnTransaction: &ApiMintBurnTransaction
+    ApiMintedBurnedInfo: &ApiMintedBurnedInfo
       type: object
       required:
-        - transaction
         - monetary_policy_index
         - policy_id
         - asset_name
         - subject
+        - script
       properties:
-        transaction: *ApiTransaction
         monetary_policy_index: *derivationSegment
         policy_id: *assetPolicyId
         asset_name: *assetName
         subject: *assetFingerprint
+        script:
+          <<: *ScriptValue
+          description: The script under which this asset was minted or burned.
+
+    ApiMintedBurnedTransaction: &ApiMintedBurnedTransaction
+      type: object
+      required:
+        - transaction
+        - mintedBurned
+      properties:
+        transaction:
+          <<: *ApiTransaction
+          description: Information about the mint/burn transaction submitted.
+        mintedBurned: 
+          type: array
+          items: *ApiMintedBurnedInfo
+          minItems: 1
+          description: An entry for each unique asset minted and/or burned, containing helpful information.
 
     ApiAssetQuantity: &ApiAssetQuantity
       type: object
@@ -4034,7 +4051,7 @@ x-responsesMintToken: &responsesMintToken
     description: Accepted
     content:
       application/json:
-        schema: *ApiMintBurnTransaction
+        schema: *ApiMintedBurnedTransaction
 
 x-responsesPostByronWallet: &responsesPostByronWallet
   <<: *responsesErr400
@@ -4798,9 +4815,7 @@ paths:
         content:
           application/json:
             schema:
-              oneOf:
-                - <<: *ApiPostMintBurnAssetData
-                  title: "mint/burn"
+              <<: *ApiPostMintBurnAssetData
       responses: *responsesMintToken
 
   /wallets/{walletId}/assets/{policyId}/{assetName}:
