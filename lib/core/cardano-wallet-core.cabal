@@ -39,6 +39,7 @@ library
     , bytestring
     , cardano-addresses
     , cardano-api
+    , cardano-binary
     , cardano-crypto
     , cardano-numeric
     , cardano-slotting

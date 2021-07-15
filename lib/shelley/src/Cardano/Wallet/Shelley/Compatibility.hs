@@ -51,7 +51,6 @@ module Cardano.Wallet.Shelley.Compatibility
       -- * Conversions
     , toCardanoHash
     , toEpochSize
-    , unsealShelleyTx
     , toPoint
     , toCardanoTxId
     , toCardanoTxIn
@@ -59,7 +58,6 @@ module Cardano.Wallet.Shelley.Compatibility
     , toAllegraTxOut
     , toMaryTxOut
     , toCardanoLovelace
-    , sealShelleyTx
     , toStakeKeyRegCert
     , toStakeKeyDeregCert
     , toStakePoolDlgCert
@@ -72,6 +70,7 @@ module Cardano.Wallet.Shelley.Compatibility
     , toCardanoValue
     , fromCardanoValue
     , rewardAccountFromAddress
+    , fromShelleyTxId
 
       -- ** Assessing sizes of token bundles
     , tokenBundleSizeAssessor
@@ -140,8 +139,6 @@ import Cardano.Api
     )
 import Cardano.Api.Shelley
     ( ShelleyGenesis (..), fromShelleyMetadata )
-import Cardano.Binary
-    ( fromCBOR, serialize' )
 import Cardano.Crypto.Hash.Class
     ( Hash (UnsafeHash), hashToBytes )
 import Cardano.Ledger.Alonzo
@@ -161,7 +158,7 @@ import Cardano.Wallet.Api.Types
     , EncodeStakeAddress (..)
     )
 import Cardano.Wallet.Byron.Compatibility
-    ( fromByronBlock, fromTxAux, toByronBlockHeader )
+    ( fromByronBlock, toByronBlockHeader )
 import Cardano.Wallet.Primitive.AddressDerivation
     ( NetworkDiscriminant (..) )
 import Cardano.Wallet.Primitive.Types
@@ -170,7 +167,7 @@ import Cardano.Wallet.Primitive.Types
     , PoolRetirementCertificate (..)
     )
 import Cardano.Wallet.Unsafe
-    ( unsafeDeserialiseCbor, unsafeMkPercentage )
+    ( unsafeMkPercentage )
 import Codec.Binary.Bech32
     ( dataPartFromBytes, dataPartToBytes )
 import Control.Applicative
@@ -226,13 +223,7 @@ import GHC.TypeLits
 import Numeric.Natural
     ( Natural )
 import Ouroboros.Consensus.Cardano.Block
-    ( CardanoBlock
-    , CardanoEras
-    , CardanoGenTx
-    , GenTx (..)
-    , HardForkBlock (..)
-    , StandardShelley
-    )
+    ( CardanoBlock, CardanoEras, HardForkBlock (..), StandardShelley )
 import Ouroboros.Consensus.HardFork.Combinator.AcrossEras
     ( OneEraHash (..) )
 import Ouroboros.Consensus.HardFork.History.Summary
@@ -263,8 +254,6 @@ import Type.Reflection
 
 import qualified Cardano.Address.Style.Shelley as CA
 import qualified Cardano.Api as Cardano
-import qualified Cardano.Api.Byron as Cardano
-    ( Tx (ByronTx) )
 import qualified Cardano.Api.Shelley as Cardano
 import qualified Cardano.Binary as Binary
 import qualified Cardano.Byron.Codec.Cbor as CBOR
@@ -294,7 +283,6 @@ import qualified Cardano.Wallet.Primitive.Types.Tx as W
 import qualified Codec.Binary.Bech32 as Bech32
 import qualified Codec.Binary.Bech32.TH as Bech32
 import qualified Codec.CBOR.Decoding as CBOR
-import qualified Codec.CBOR.Write as CBOR
 import qualified Data.Aeson as Aeson
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
@@ -1081,41 +1069,6 @@ toByronNetworkMagic pm@(W.ProtocolMagic magic) =
         Byron.NetworkMainOrStage
     else
         Byron.NetworkTestnet (fromIntegral magic)
-
--- | SealedTx are the result of rightfully constructed shelley transactions so, it
--- is relatively safe to unserialize them from CBOR.
-unsealShelleyTx
-    :: (HasCallStack, O.ShelleyBasedEra (era c))
-    => (GenTx (ShelleyBlock (era c)) -> CardanoGenTx c)
-    -> W.SealedTx
-    -> CardanoGenTx c
-unsealShelleyTx wrap = wrap
-    . unsafeDeserialiseCbor fromCBOR
-    . BL.fromStrict
-    . W.getSealedTx
-
-sealShelleyTx
-    :: forall era b c. (O.ShelleyBasedEra (Cardano.ShelleyLedgerEra era))
-    => (SLAPI.Tx (Cardano.ShelleyLedgerEra era) -> (W.Tx, b, c))
-    -> Cardano.Tx era
-    -> (W.Tx, W.SealedTx)
-sealShelleyTx fromTx (Cardano.ShelleyTx _era tx) =
-    let
-        -- The Cardano.Tx GADT won't allow the Shelley crypto type param escape,
-        -- so we convert directly to the concrete wallet Tx type:
-        (walletTx, _, _) = fromTx tx
-        sealed = serialize' $ O.mkShelleyTx tx
-    in
-        (walletTx, W.SealedTx sealed)
-
--- Needed to compile, but in principle should never be called.
-sealShelleyTx _ (Cardano.ByronTx txaux) =
-    let
-        tx = fromTxAux txaux
-        inps = fst <$> W.resolvedInputs tx
-        outs = W.outputs tx
-    in
-        (tx, W.SealedTx $ CBOR.toStrictByteString $ CBOR.encodeTx (inps, outs))
 
 toCardanoTxId :: W.Hash "Tx" -> Cardano.TxId
 toCardanoTxId (W.Hash h) = Cardano.TxId $ UnsafeHash $ toShort h

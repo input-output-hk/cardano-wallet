@@ -43,6 +43,8 @@ module Cardano.Wallet.Shelley.Network
 
 import Prelude
 
+import Cardano.Binary
+    ( fromCBOR )
 import Cardano.BM.Data.Severity
     ( Severity (..) )
 import Cardano.BM.Data.Tracer
@@ -63,6 +65,8 @@ import Cardano.Wallet.Primitive.Slotting
     )
 import Cardano.Wallet.Primitive.SyncProgress
     ( SyncProgress (..), SyncTolerance )
+import Cardano.Wallet.Primitive.Types.Tx
+    ( SealedTx (..), ToCardanoTx (..) )
 import Cardano.Wallet.Shelley.Compatibility
     ( AnyCardanoEra (..)
     , CardanoEra (..)
@@ -83,8 +87,9 @@ import Cardano.Wallet.Shelley.Compatibility
     , toPoint
     , toShelleyCoin
     , toStakeCredential
-    , unsealShelleyTx
     )
+import Cardano.Wallet.Unsafe
+    ( unsafeDeserialiseCbor )
 import Control.Applicative
     ( liftA3 )
 import Control.Monad
@@ -125,8 +130,6 @@ import Control.Retry
     ( RetryPolicyM, RetryStatus (..), capDelay, fibonacciBackoff, recovering )
 import Control.Tracer
     ( Tracer (..), contramap, nullTracer, traceWith )
-import Data.ByteArray.Encoding
-    ( Base (..), convertToBase )
 import Data.ByteString.Lazy
     ( ByteString )
 import Data.Function
@@ -154,7 +157,7 @@ import Data.Time.Clock
 import Data.Void
     ( Void )
 import Fmt
-    ( Buildable (..), fmt, listF, mapF, pretty )
+    ( Buildable (..), fmt, hexF, listF, mapF, pretty, (+|), (|+) )
 import GHC.Stack
     ( HasCallStack )
 import Network.Mux
@@ -165,6 +168,7 @@ import Ouroboros.Consensus.Cardano.Block
     ( BlockQuery (..)
     , CardanoApplyTxErr
     , CardanoEras
+    , CardanoGenTx
     , CodecConfig (..)
     , GenTx (..)
     )
@@ -180,6 +184,8 @@ import Ouroboros.Consensus.Network.NodeToClient
     ( ClientCodecs, Codecs' (..), DefaultCodecs, clientCodecs, defaultCodecs )
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
     ( HasNetworkProtocolVersion (..), SupportedNetworkProtocolVersion (..) )
+import Ouroboros.Consensus.Shelley.Ledger
+    ( mkShelleyTx )
 import Ouroboros.Consensus.Shelley.Ledger.Config
     ( CodecConfig (..), getCompactGenesis )
 import Ouroboros.Network.Block
@@ -255,6 +261,7 @@ import UnliftIO.Concurrent
 import UnliftIO.Exception
     ( Handler (..), IOException )
 
+import qualified Cardano.Api.Shelley as Cardano
 import qualified Cardano.Ledger.Core as SL.Core
 import qualified Cardano.Wallet.Primitive.SyncProgress as SyncProgress
 import qualified Cardano.Wallet.Primitive.Types as W
@@ -263,10 +270,10 @@ import qualified Cardano.Wallet.Primitive.Types.Hash as W
 import qualified Cardano.Wallet.Primitive.Types.RewardAccount as W
 import qualified Cardano.Wallet.Primitive.Types.Tx as W
 import qualified Codec.CBOR.Term as CBOR
+import qualified Data.ByteString.Lazy as BL
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
-import qualified Data.Text.Encoding as T
 import qualified Ouroboros.Consensus.Byron.Ledger as Byron
 import qualified Ouroboros.Consensus.Shelley.Ledger as Shelley
 import qualified Ouroboros.Network.Point as Point
@@ -494,6 +501,28 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
                     SubmitSuccess -> pure ()
                     SubmitFail err -> throwE $ ErrPostTxBadRequest $ T.pack (show err)
 
+      where
+        unsealShelleyTx
+            :: forall era c. (HasCallStack, Shelley.ShelleyBasedEra (era c))
+            => (GenTx (Shelley.ShelleyBlock (era c)) -> CardanoGenTx c)
+            -> W.SealedTx
+            -> CardanoGenTx c
+        unsealShelleyTx wrap = wrap
+             . mkShelleyTx
+             . getLedgerTx
+             . unsafeToCardanoTx
+             . sealedTxToCardano @(era c)
+        {--
+            . unsafeDeserialiseCbor fromCBOR
+            . BL.fromStrict
+            . serialisedTx
+        --}
+        unsafeToCardanoTx =
+            either (\e -> error $ "unsafeToCardanoTx: " <> show e) id
+
+        getLedgerTx tx =
+            let (Cardano.ShelleyTx _era ledgertx) = tx
+            in ledgertx
 
     _stakeDistribution queue coin = do
         liftIO $ traceWith tr $ MsgWillQueryRewardsForStake coin
@@ -517,7 +546,6 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
                 return res
             Nothing -> pure $ W.StakePoolsSummary 0 mempty mempty
       where
-
         stakeDistr
             :: LSQ (CardanoBlock StandardCrypto) IO
                 (Maybe (Map W.PoolId Percentage))
@@ -596,7 +624,6 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
                     -- db.
                     Left _pastHorizon -> return NotResponding
                     Right p -> return p
-
 
 --------------------------------------------------------------------------------
 --
@@ -1220,10 +1247,8 @@ instance ToText NetworkLayerLog where
             ]
         MsgIntersectionFound point -> T.unwords
             [ "Intersection found:", pretty point ]
-        MsgPostTx (W.SealedTx bytes) -> T.unwords
-            [ "Posting transaction, serialized as:"
-            , T.decodeUtf8 $ convertToBase Base16 bytes
-            ]
+        MsgPostTx tx ->
+            "Posting transaction, serialized as:\n"+|hexF (serialisedTx tx)|+""
         MsgLocalStateQuery client msg ->
             T.pack (show client <> " " <> show msg)
         MsgNodeTip bh -> T.unwords

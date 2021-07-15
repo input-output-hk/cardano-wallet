@@ -153,6 +153,7 @@ import Cardano.Wallet.Primitive.Types.Tx
     ( Direction (..)
     , LocalTxSubmissionStatus (..)
     , SealedTx (..)
+    , SerialisedTx (..)
     , TransactionInfo (..)
     , Tx (..)
     , TxIn (..)
@@ -161,6 +162,8 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TxOut (..)
     , TxStatus
     , inputs
+    , serialisedTx
+    , unsafeSealedTxFromBytes
     )
 import Cardano.Wallet.Primitive.Types.UTxO
     ( UTxO (..) )
@@ -321,14 +324,38 @@ instance MockPrivKey (ByronKey 'RootK) where
     fromMockPrivKey s = (k, Hash (B8.pack s))
       where (k, _) = unsafeDeserializeXPrv (zeroes <> ":", mempty)
 
+newtype MockSerialisedTx = MockSerialisedTx { mockSerialisedTxId :: Hash "Tx" }
+    deriving (Show, Eq, Generic, NFData)
+
+unMockSerialisedTx :: Hash "Tx" -> SerialisedTx
+unMockSerialisedTx = SerialisedTx . getHash
+
+mockSerialisedTx :: SerialisedTx -> MockSerialisedTx
+mockSerialisedTx = MockSerialisedTx . Hash . payload
+
 newtype MockSealedTx = MockSealedTx { mockSealedTxId :: Hash "Tx" }
     deriving (Show, Eq, Generic, NFData)
 
 unMockSealedTx :: Hash "Tx" -> SealedTx
-unMockSealedTx = SealedTx . getHash
+unMockSealedTx = unsafeSealedTxFromBytes . getHash
 
 mockSealedTx :: SealedTx -> MockSealedTx
-mockSealedTx = MockSealedTx . Hash . getSealedTx
+mockSealedTx = MockSealedTx . Hash . serialisedTx
+
+{-
+data MockEra
+data TxBody MockEra where
+    MockTxBody :: Hash "Tx" -> TxBody MockEra
+instance IsShelleyBasedEra MockEra where
+    shelleyBasedEra :: ShelleyBasedEraShelley
+instance IsCardanoEra MockEra where
+    cardanoEra = ShelleyEra
+instance HasTypeProxy ByronEra where
+    data AsType MockEra = AsMockEra
+    proxyToAsType _ = AsMockEra
+pattern AsMock :: AsType MockEra
+pattern AsMock = AsMockEra
+-}
 
 {-------------------------------------------------------------------------------
   Language
@@ -994,7 +1021,7 @@ instance ToExpr TxMeta where
     toExpr = genericToExpr
 
 instance ToExpr SealedTx where
-    toExpr = genericToExpr
+    toExpr _ = toExpr ("fixme: ToExpr SealedTx" :: String)
 
 instance ToExpr MockSealedTx where
     toExpr = genericToExpr

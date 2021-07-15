@@ -130,6 +130,7 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TxStatus (..)
     , isPending
     , txOutCoin
+    , unsafeSealedTxFromBytes
     )
 import Cardano.Wallet.Primitive.Types.Tx.Gen
     ( genTxInLargeRange )
@@ -793,7 +794,7 @@ mkLocalTxSubmissionStatus = mapMaybe getStatus . getTxHistory
       where
         i = tx ^. #txId
         sl = txMeta ^. #slotNo
-        st = LocalTxSubmissionStatus i (SealedTx (getHash i)) sl sl
+        st = LocalTxSubmissionStatus i (unsafeSealedTxFromBytes (getHash i)) sl sl
 
 instance Arbitrary SlottingParameters where
     arbitrary = mk <$> choose (0.5, 1)
@@ -871,8 +872,7 @@ prop_localTxSubmission tc = monadicIO $ do
     assert (all inPool (resSubmittedTxs res))
 
     --  2. non-pending transactions not retried
-    let mkSealed = SealedTx . getHash . view #txId
-    let nonPending = map (mkSealed . fst)
+    let nonPending = map (unsafeSealedTxFromBytes . getHash . view #txId . fst)
             . filter ((/= Pending) . view #status . snd)
             . getTxHistory $ retryTestTxHistory tc
     assert (all (`notElem` (resSubmittedTxs res)) nonPending)
@@ -1291,7 +1291,7 @@ dummyTransactionLayer = TransactionLayer
             return $ xpubToBytes (getKey $ publicKey xprv) <> sig
 
         -- (tx1, wit1) == (tx2, wit2) <==> fakebinary1 == fakebinary2
-        let fakeBinary = SealedTx . B8.pack $ show (tx, wit)
+        let fakeBinary = unsafeSealedTxFromBytes . B8.pack $ show (tx, wit)
         return (tx, fakeBinary)
 
     , mkUnsignedTransaction =

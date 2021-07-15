@@ -30,7 +30,6 @@ module Cardano.Wallet.Byron.Compatibility
 
       -- * Conversions
     , toByronHash
-    , toGenTx
     , toPoint
 
     , fromBlockNo
@@ -53,7 +52,7 @@ module Cardano.Wallet.Byron.Compatibility
 import Prelude
 
 import Cardano.Binary
-    ( fromCBOR, serialize' )
+    ( serialize' )
 import Cardano.Chain.Block
     ( ABlockOrBoundary (..), blockTxPayload )
 import Cardano.Chain.Common
@@ -65,27 +64,18 @@ import Cardano.Chain.Common
     )
 import Cardano.Chain.Genesis
     ( GenesisData (..), GenesisHash (..), GenesisNonAvvmBalances (..) )
-import Cardano.Chain.MempoolPayload
-    ( AMempoolPayload (..) )
 import Cardano.Chain.Slotting
     ( EpochSlots (..) )
 import Cardano.Chain.Update
     ( ProtocolParameters (..) )
 import Cardano.Chain.UTxO
-    ( ATxAux (..)
-    , Tx (..)
-    , TxIn (..)
-    , TxOut (..)
-    , annotateTxAux
-    , taTx
-    , unTxPayload
-    )
+    ( ATxAux (..), Tx (..), TxIn (..), TxOut (..), taTx, unTxPayload )
 import Cardano.Crypto
     ( serializeCborHash )
 import Cardano.Crypto.ProtocolMagic
     ( ProtocolMagicId, unProtocolMagicId )
 import Cardano.Wallet.Unsafe
-    ( unsafeDeserialiseCbor, unsafeFromHex )
+    ( unsafeFromHex )
 import Crypto.Hash.Utils
     ( blake2b256 )
 import Data.Coerce
@@ -96,14 +86,12 @@ import Data.Time.Clock.POSIX
     ( posixSecondsToUTCTime )
 import Data.Word
     ( Word16, Word32 )
-import GHC.Stack
-    ( HasCallStack )
 import Numeric.Natural
     ( Natural )
 import Ouroboros.Consensus.Block.Abstract
     ( headerPrevHash )
 import Ouroboros.Consensus.Byron.Ledger
-    ( ByronBlock (..), ByronHash (..), GenTx, fromMempoolPayload )
+    ( ByronBlock (..), ByronHash (..) )
 import Ouroboros.Consensus.Byron.Ledger.Config
     ( CodecConfig (..) )
 import Ouroboros.Consensus.HardFork.History.Summary
@@ -125,7 +113,6 @@ import qualified Cardano.Wallet.Primitive.Types.Hash as W
 import qualified Cardano.Wallet.Primitive.Types.TokenBundle as TokenBundle
 import qualified Cardano.Wallet.Primitive.Types.Tx as W
 import qualified Data.ByteString as BS
-import qualified Data.ByteString.Lazy as BL
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Map.Strict as Map
 import qualified Ouroboros.Consensus.Block as O
@@ -249,17 +236,6 @@ toPoint
 toPoint genesisH (W.BlockHeader sl _ h _)
   | h == (coerce genesisH) = O.GenesisPoint
   | otherwise = O.Point $ Point.block sl (toByronHash h)
-
--- | SealedTx are the result of rightfully constructed byron transactions so, it
--- is relatively safe to unserialize them from CBOR.
-toGenTx :: HasCallStack => W.SealedTx -> GenTx ByronBlock
-toGenTx =
-    fromMempoolPayload
-    . MempoolTx
-    . annotateTxAux
-    . unsafeDeserialiseCbor fromCBOR
-    . BL.fromStrict
-    . W.getSealedTx
 
 byronCodecConfig :: W.SlottingParameters -> CodecConfig ByronBlock
 byronCodecConfig W.SlottingParameters{getEpochLength} =

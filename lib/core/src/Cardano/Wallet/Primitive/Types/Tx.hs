@@ -7,6 +7,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedLabels #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
 
 -- |
 -- Copyright: © 2018-2020 IOHK
@@ -25,15 +26,22 @@ module Cardano.Wallet.Primitive.Types.Tx
     , TxMetadata (..)
     , TxMetadataValue (..)
     , TxStatus (..)
-    , SealedTx (..)
-    , SerialisedTx (..)
-    , SerialisedTxParts (..)
     , UnsignedTx (..)
     , TransactionInfo (..)
     , Direction (..)
     , LocalTxSubmissionStatus (..)
     , TokenBundleSizeAssessor (..)
     , TokenBundleSizeAssessment (..)
+
+    -- * Serialisation
+    , SealedTx (serialisedTx, cardanoTx)
+    , sealedTxFromBytes
+    , sealedTxFromCardano
+    , getSerialisedTxParts
+    , unsafeSealedTxFromBytes
+    , SerialisedTx (..)
+    , SerialisedTxParts (..)
+    , ToCardanoTx (..)
 
     -- * Functions
     , fromTransactionInfo
@@ -66,7 +74,15 @@ module Cardano.Wallet.Primitive.Types.Tx
 import Prelude
 
 import Cardano.Api
-    ( TxMetadata (..), TxMetadataValue (..) )
+    ( CardanoEra (..)
+    , InAnyCardanoEra (..)
+    , TxMetadata (..)
+    , TxMetadataValue (..)
+    , deserialiseFromCBOR
+    , serialiseToCBOR
+    )
+import Cardano.Binary
+    ( DecoderError )
 import Cardano.Slotting.Slot
     ( SlotNo (..) )
 import Cardano.Wallet.Orphans
@@ -95,6 +111,8 @@ import Data.ByteArray
     ( ByteArray, ByteArrayAccess )
 import Data.ByteString
     ( ByteString )
+import Data.Either
+    ( partitionEithers )
 import Data.Function
     ( (&) )
 import Data.Generics.Internal.VL.Lens
@@ -120,6 +138,8 @@ import Data.Text.Class
     )
 import Data.Time.Clock
     ( UTCTime )
+import Data.Type.Equality
+    ( (:~:) (..), testEquality )
 import Data.Word
     ( Word32, Word64 )
 import Fmt
@@ -139,6 +159,7 @@ import Numeric.Natural
 import Quiet
     ( Quiet (..) )
 
+import qualified Cardano.Api as Cardano
 import qualified Cardano.Wallet.Primitive.Types.TokenBundle as TokenBundle
 import qualified Cardano.Wallet.Primitive.Types.TokenMap as TokenMap
 import qualified Data.Map.Strict as Map
@@ -400,11 +421,93 @@ instance Buildable a => Buildable (WithDirection a) where
         <> (case d of; Incoming -> "+"; Outgoing -> "-")
         <> build a
 
--- | @SealedTx@ is a signed and serialised transaction that is ready to be
--- submitted to the node.
-newtype SealedTx = SealedTx { getSealedTx :: ByteString }
-    deriving stock (Show, Eq, Generic)
-    deriving newtype (ByteArrayAccess, NFData)
+-- | 'SealedTx' is a possibly signed and serialised transaction that is ready to
+-- be submitted to the node.
+--
+-- Construct it with either 'sealedTxFromCardano' or 'cardanoTxFromBytes'.
+data SealedTx = SealedTx
+    { cardanoTx :: InAnyCardanoEra Cardano.Tx
+    , serialisedTx :: ByteString
+    } deriving stock (Generic)
+
+instance Show SealedTx where
+    show (SealedTx (InAnyCardanoEra _era tx) _) = show tx
+
+instance Eq SealedTx where
+    SealedTx (InAnyCardanoEra e1 _) a == SealedTx (InAnyCardanoEra e2 _) b =
+        case testEquality e1 e2 of
+            Just Refl -> a == b
+            Nothing -> False
+
+instance NFData SealedTx where
+    rnf = rnf . show  -- fixme: temp fix
+
+-- | Construct a 'SealedTx' from a "Cardano.Api" transaction.
+sealedTxFromCardano :: InAnyCardanoEra Cardano.Tx -> SealedTx
+sealedTxFromCardano tx = SealedTx tx (cardanoTxToBytes tx)
+  where
+    cardanoTxToBytes :: InAnyCardanoEra Cardano.Tx -> ByteString
+    cardanoTxToBytes (InAnyCardanoEra _era tx') = Cardano.serialiseToCBOR tx'
+
+class ToCardanoTx era where
+    sealedTxToCardano :: SealedTx -> Either DecoderError (Cardano.Tx era)
+
+instance ToCardanoTx Cardano.MaryEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsMaryEra) bs
+
+instance ToCardanoTx Cardano.AllegraEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsAllegraEra) bs
+
+instance ToCardanoTx Cardano.AlonzoEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsAlonzoEra) bs
+
+instance ToCardanoTx Cardano.ShelleyEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsShelleyEra) bs
+
+instance ToCardanoTx Cardano.ByronEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsByronEra) bs
+
+-- | Deserialise a Cardano transaction. The transaction can be in the format of
+-- any era. This function will try the most recent era first ('MaryEra'), then
+-- previous eras until 'ByronEra'.
+cardanoTxFromBytes :: ByteString -> Either DecoderError (InAnyCardanoEra Cardano.Tx)
+cardanoTxFromBytes bs = asum
+    [ InAnyCardanoEra MaryEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsMaryEra) bs
+    , InAnyCardanoEra AlonzoEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsAlonzoEra) bs
+    , InAnyCardanoEra AllegraEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsAllegraEra) bs
+    , InAnyCardanoEra ShelleyEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsShelleyEra) bs
+    , InAnyCardanoEra ByronEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsByronEra) bs
+    ]
+  where
+    asum xs = case partitionEithers xs of
+        (_, (a:_)) -> Right a
+        ((e:_), []) -> Left e
+        ([], []) -> undefined
+
+-- | Deserialise a transaction to construct a 'SealedTx'.
+sealedTxFromBytes :: ByteString -> Either DecoderError SealedTx
+sealedTxFromBytes bs = SealedTx <$> cardanoTxFromBytes bs <*> pure bs
+
+-- | Only use this for tests.
+unsafeSealedTxFromBytes :: ByteString -> SealedTx
+unsafeSealedTxFromBytes bs = SealedTx
+    { cardanoTx = either bomb id $ cardanoTxFromBytes bs
+    , serialisedTx = bs
+    }
+  where
+    bomb err = error ("unsafeSealedTxFromBytes: " <> show err)
+
+-- | Get the serialised transaction body and witnesses from a 'SealedTx'.
+getSerialisedTxParts :: SealedTx -> SerialisedTxParts
+getSerialisedTxParts (SealedTx (InAnyCardanoEra _ tx) _) = SerialisedTxParts
+    { serialisedTxBody = serialiseToCBOR $ Cardano.getTxBody tx
+    , serialisedTxWitnesses = serialiseToCBOR <$> Cardano.getTxWitnesses tx
+    }
 
 -- | A serialised transaction that may be only partially signed, or even
 -- invalid.
@@ -416,8 +519,7 @@ newtype SerialisedTx = SerialisedTx { payload :: ByteString }
 -- incomplete set of serialised witnesses, along with an encoding of the
 -- combined transaction.
 data SerialisedTxParts = SerialisedTxParts
-    { serialisedTx :: ByteString
-    , serialisedTxBody :: ByteString
+    { serialisedTxBody :: ByteString
     , serialisedTxWitnesses :: [ByteString]
     } deriving stock (Show, Eq, Generic)
 

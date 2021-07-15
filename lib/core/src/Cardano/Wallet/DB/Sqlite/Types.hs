@@ -1,9 +1,12 @@
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DerivingVia #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE UndecidableInstances #-}
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- |
@@ -70,7 +73,12 @@ import Cardano.Wallet.Primitive.Types.TokenPolicy
 import Cardano.Wallet.Primitive.Types.TokenQuantity
     ( TokenQuantity (..) )
 import Cardano.Wallet.Primitive.Types.Tx
-    ( Direction (..), SealedTx (..), TxMetadata, TxStatus (..) )
+    ( Direction (..)
+    , SealedTx (..)
+    , TxMetadata
+    , TxStatus (..)
+    , sealedTxFromBytes
+    )
 import Control.Arrow
     ( left )
 import Control.Monad
@@ -440,8 +448,8 @@ instance PersistFieldSql TxMetadata where
 -- SealedTx - store the serialised tx as a binary blob
 
 instance PersistField SealedTx where
-    toPersistValue = toPersistValue . getSealedTx
-    fromPersistValue = fmap SealedTx . fromPersistValue
+    toPersistValue = toPersistValue . serialisedTx
+    fromPersistValue = fromPersistValue >=> first (T.pack . show) . sealedTxFromBytes
 
 instance PersistFieldSql SealedTx where
     sqlType _ = sqlType (Proxy @ByteString)

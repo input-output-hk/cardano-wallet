@@ -105,7 +105,6 @@ import Cardano.Wallet.Api.Types
     , ApiSelectCoinsAction (..)
     , ApiSelectCoinsData (..)
     , ApiSelectCoinsPayments (..)
-    , ApiSerialisedTransaction (..)
     , ApiSharedWallet (..)
     , ApiSharedWalletPatchData (..)
     , ApiSharedWalletPostData (..)
@@ -252,12 +251,15 @@ import Cardano.Wallet.Primitive.Types.TokenPolicy
     )
 import Cardano.Wallet.Primitive.Types.Tx
     ( Direction (..)
+    , SealedTx
     , SerialisedTx (..)
     , SerialisedTxParts (..)
     , TxIn (..)
     , TxMetadata (..)
     , TxOut (..)
     , TxStatus (..)
+    , serialisedTx
+    , unsafeSealedTxFromBytes
     )
 import Cardano.Wallet.Primitive.Types.UTxO
     ( HistogramBar (..)
@@ -1015,13 +1017,6 @@ spec = parallel $ do
                     , timeToLive = timeToLive (x :: PostTransactionFeeOldData ('Testnet 0))
                     }
             in
-                x' === x .&&. show x' === show x
-        it "ApiSerialisedTransaction" $ property $ \x ->
-            let
-                x' = ApiSerialisedTransaction
-                    { transaction = transaction (x :: ApiSerialisedTransaction)
-                    }
-             in
                 x' === x .&&. show x' === show x
 
         it "ApiTransaction" $ property $ \x ->
@@ -1962,9 +1957,9 @@ instance Arbitrary ApiSignedTransaction where
     arbitrary = genericArbitrary
     shrink = genericShrink
 
-instance Arbitrary ApiSerialisedTransaction where
-    arbitrary = genericArbitrary
-    shrink = genericShrink
+instance Arbitrary SealedTx where
+    arbitrary = unsafeSealedTxFromBytes <$> genSmallBlob
+    shrink = fmap unsafeSealedTxFromBytes . shrinkBlob . serialisedTx
 
 instance Arbitrary SerialisedTx where
     arbitrary = SerialisedTx <$> genSmallBlob
@@ -1973,14 +1968,10 @@ instance Arbitrary SerialisedTx where
 instance Arbitrary SerialisedTxParts where
     arbitrary = SerialisedTxParts
         <$> genSmallBlob
-        <*> genSmallBlob
         <*> listOf genSmallBlob
-    shrink (SerialisedTxParts tx bs ws) =
-        [ SerialisedTxParts tx' bs' ws'
-        | ((tx', bs'), ws') <- liftShrink2
-            (liftShrink2 shrinkBlob shrinkBlob)
-            (liftShrink shrinkBlob)
-            ((tx, bs), ws)
+    shrink (SerialisedTxParts bs ws) =
+        [ SerialisedTxParts bs' ws'
+        | (bs', ws') <- liftShrink2 shrinkBlob (liftShrink shrinkBlob) (bs, ws)
         ]
 
 instance Arbitrary TxMetadata where
@@ -2377,9 +2368,6 @@ instance ToSchema ApiSignTransactionPostData where
 instance ToSchema ApiSignedTransaction where
     -- fixme: tests don't seem to like allOf
     declareNamedSchema _ = declareSchemaForDefinition "ApiSignedTransaction"
-
-instance ToSchema ApiSerialisedTransaction where
-    declareNamedSchema _ = declareSchemaForDefinition "ApiSerialisedTransaction"
 
 instance ToSchema (ApiBytesT 'Base64 SerialisedTx) where
     declareNamedSchema _ = declareSchemaForDefinition "ApiSerialisedTx"
