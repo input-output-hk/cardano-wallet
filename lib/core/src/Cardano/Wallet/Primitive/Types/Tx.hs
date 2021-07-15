@@ -37,6 +37,7 @@ module Cardano.Wallet.Primitive.Types.Tx
     , SealedTx (serialisedTx, cardanoTx)
     , sealedTxFromBytes
     , sealedTxFromCardano
+    , sealedTxToCardano
     , getSerialisedTxParts
     , unsafeSealedTxFromBytes
     , SerialisedTx (..)
@@ -447,6 +448,12 @@ sealedTxFromCardano tx = SealedTx tx (cardanoTxToBytes tx)
   where
     cardanoTxToBytes :: InAnyCardanoEra Cardano.Tx -> ByteString
     cardanoTxToBytes (InAnyCardanoEra _era tx') = Cardano.serialiseToCBOR tx'
+
+sealedTxToCardano :: SealedTx -> Cardano.Tx era
+sealedTxToCardano (SealedTx tx _) =
+    let (InAnyCardanoEra _era tx') = tx
+    in tx'
+
 
 -- | Deserialise a Cardano transaction. The transaction can be in the format of
 -- any era. This function will try the most recent era first ('MaryEra'), then

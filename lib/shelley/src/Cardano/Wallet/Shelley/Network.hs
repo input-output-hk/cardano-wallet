@@ -184,6 +184,8 @@ import Ouroboros.Consensus.Network.NodeToClient
     ( ClientCodecs, Codecs' (..), DefaultCodecs, clientCodecs, defaultCodecs )
 import Ouroboros.Consensus.Node.NetworkProtocolVersion
     ( HasNetworkProtocolVersion (..), SupportedNetworkProtocolVersion (..) )
+import Ouroboros.Consensus.Shelley.Ledger
+    ( mkShelleyTx )
 import Ouroboros.Consensus.Shelley.Ledger.Config
     ( CodecConfig (..), getCompactGenesis )
 import Ouroboros.Network.Block
@@ -507,9 +509,18 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
             -> W.SealedTx
             -> CardanoGenTx c
         unsealShelleyTx wrap = wrap
+             . mkShelleyTx
+             . getLedgerTx
+             . W.sealedTxToCardano
+        {--
             . unsafeDeserialiseCbor fromCBOR
             . BL.fromStrict
             . serialisedTx
+        --}
+
+        getLedgerTx tx =
+            let (Cardano.ShelleyTx _era ledgertx) = tx
+            in ledgertx
 
     _stakeDistribution queue coin = do
         liftIO $ traceWith tr $ MsgWillQueryRewardsForStake coin

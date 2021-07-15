@@ -110,6 +110,7 @@ import Cardano.Wallet.Primitive.Types.Tx
     , TxOut (..)
     , TxSize (..)
     , sealedTxFromCardano
+    , sealedTxFromCardano1
     , txOutCoin
     , txOutMaxTokenQuantity
     , txSizeDistance
@@ -197,8 +198,10 @@ import qualified Data.List.NonEmpty as NE
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import qualified Data.Text as T
+import qualified Ouroboros.Consensus.Shelley.Ledger as O
 import qualified Shelley.Spec.Ledger.Address.Bootstrap as SL
 
+import qualified Debug.Trace as TR
 
 -- | Type encapsulating what we need to know to add things -- payloads,
 -- certificates -- to a transaction.
@@ -340,7 +343,7 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
         let withResolvedInputs tx' = tx'
                 { resolvedInputs = (, Coin 0) <$> selectedInputs -- fixme: resolve inputs
                 }
-        Right (withResolvedInputs (fromCardanoTx signed), signed)
+        Right (withResolvedInputs (fst $ fromCardanoTx signed), signed)
 
     lookupXPrv
         :: TxIn
@@ -350,21 +353,31 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
 sealedTxFromCardano' :: Cardano.IsCardanoEra era => Cardano.Tx era -> SealedTx
 sealedTxFromCardano' = sealedTxFromCardano . InAnyCardanoEra Cardano.cardanoEra
 
+{--
+sealedTxFromCardano'' :: Cardano.IsCardanoEra era => Cardano.Tx era -> ByteString -> SealedTx
+sealedTxFromCardano'' tx bytes =
+    TR.trace ("--- Cardano.serialiseToCBOR tx: "<>show (BS.unpack $ Cardano.serialiseToCBOR tx) <> " \nserialize' $O.mkShelleyTx: "<> show (BS.unpack bytes)) $ sealedTxFromCardano1 (InAnyCardanoEra Cardano.cardanoEra tx) bytes
+--}
+
 sealShelleyTx
-    :: forall era. IsShelleyBasedEra era
+    :: forall era.
+       ( IsShelleyBasedEra era
+       --, O.ShelleyBasedEra (Cardano.ShelleyLedgerEra era)
+       )
     => Cardano.Tx era
     -> (Tx, SealedTx)
 sealShelleyTx tx =
-    (fromCardanoTx tx, sealedTxFromCardano' tx)
+    --(fst $ fromCardanoTx tx, sealedTxFromCardano'' tx (snd $ fromCardanoTx tx))
+    (fst $ fromCardanoTx tx, sealedTxFromCardano' tx)
 
-fromCardanoTx :: Cardano.Tx era -> Tx
+fromCardanoTx :: Cardano.Tx era -> (Tx, ByteString)
 fromCardanoTx tx =
     let (Cardano.ShelleyTx era ledgertx) = tx
     in case era of
-        ShelleyBasedEraShelley -> getTx $ fromShelleyTx ledgertx
-        ShelleyBasedEraAllegra -> getTx $ fromAllegraTx ledgertx
-        ShelleyBasedEraMary    -> getTx $ fromMaryTx ledgertx
-        ShelleyBasedEraAlonzo  -> getTx $ fromAlonzoTx ledgertx
+        ShelleyBasedEraShelley -> (getTx $ fromShelleyTx ledgertx, serialize' $ O.mkShelleyTx ledgertx)
+        ShelleyBasedEraAllegra -> (getTx $ fromAllegraTx ledgertx, serialize' $ O.mkShelleyTx ledgertx)
+        ShelleyBasedEraMary    -> (getTx $ fromMaryTx ledgertx, serialize' $ O.mkShelleyTx ledgertx)
+        ShelleyBasedEraAlonzo  -> (getTx $ fromAlonzoTx ledgertx, serialize' $ O.mkShelleyTx ledgertx)
   where
       getTx (txwal, _, _) = txwal
 
