@@ -443,6 +443,7 @@ data ClusterEra
     | ShelleyHardFork
     | AllegraHardFork
     | MaryHardFork
+    | AlonzoHardFork
     deriving (Show, Read, Eq, Ord, Bounded, Enum)
 
 -- | Convert @ClusterEra@ to a @ApiEra@.
@@ -464,6 +465,7 @@ clusterEraFromEnv =
         "shelley" -> pure ShelleyHardFork
         "allegra" -> pure AllegraHardFork
         "mary" -> pure MaryHardFork
+        "alonzo" -> pure AlonzoHardFork
         _ -> die $ var ++ ": unknown era"
     withDefault = fromMaybe maxBound
 
@@ -473,6 +475,7 @@ clusterEraName = \case
     ShelleyHardFork -> "shelley"
     AllegraHardFork -> "allegra"
     MaryHardFork -> "mary"
+    AlonzoHardFork -> "alonzo"
 
 data LocalClusterConfig = LocalClusterConfig
     { cfgStakePools :: [PoolConfig]
