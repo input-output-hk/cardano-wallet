@@ -66,7 +66,7 @@ import Cardano.Wallet.Primitive.Slotting
 import Cardano.Wallet.Primitive.SyncProgress
     ( SyncProgress (..), SyncTolerance )
 import Cardano.Wallet.Primitive.Types.Tx
-    ( SealedTx (..) )
+    ( SealedTx (..), ToCardanoTx (..) )
 import Cardano.Wallet.Shelley.Compatibility
     ( AnyCardanoEra (..)
     , CardanoEra (..)
@@ -261,6 +261,7 @@ import UnliftIO.Concurrent
 import UnliftIO.Exception
     ( Handler (..), IOException )
 
+import qualified Cardano.Api.Shelley as Cardano
 import qualified Cardano.Ledger.Core as SL.Core
 import qualified Cardano.Wallet.Primitive.SyncProgress as SyncProgress
 import qualified Cardano.Wallet.Primitive.Types as W
@@ -501,22 +502,23 @@ withNetworkLayerBase tr np conn (versionData, _) tol action = do
                     SubmitFail err -> throwE $ ErrPostTxBadRequest $ T.pack (show err)
 
       where
-        -- fixme: we don't need to deserialise -- there is already a full
-        -- Cardano.Tx in SealedTx.
         unsealShelleyTx
-            :: (HasCallStack, Shelley.ShelleyBasedEra (era c))
+            :: forall era c. (HasCallStack, Shelley.ShelleyBasedEra (era c))
             => (GenTx (Shelley.ShelleyBlock (era c)) -> CardanoGenTx c)
             -> W.SealedTx
             -> CardanoGenTx c
         unsealShelleyTx wrap = wrap
              . mkShelleyTx
              . getLedgerTx
-             . W.sealedTxToCardano
+             . unsafeToCardanoTx
+             . sealedTxToCardano @(era c)
         {--
             . unsafeDeserialiseCbor fromCBOR
             . BL.fromStrict
             . serialisedTx
         --}
+        unsafeToCardanoTx =
+            either (\e -> error $ "unsafeToCardanoTx: " <> show e) id
 
         getLedgerTx tx =
             let (Cardano.ShelleyTx _era ledgertx) = tx

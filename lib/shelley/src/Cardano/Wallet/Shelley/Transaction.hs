@@ -343,7 +343,7 @@ constructSignedTx networkId (rewardAcnt, pwdAcnt) keyFrom sealed =
         let withResolvedInputs tx' = tx'
                 { resolvedInputs = (, Coin 0) <$> selectedInputs -- fixme: resolve inputs
                 }
-        Right (withResolvedInputs (fst $ fromCardanoTx signed), signed)
+        Right (withResolvedInputs (fromCardanoTx signed), signed)
 
     lookupXPrv
         :: TxIn
@@ -362,22 +362,20 @@ sealedTxFromCardano'' tx bytes =
 sealShelleyTx
     :: forall era.
        ( IsShelleyBasedEra era
-       --, O.ShelleyBasedEra (Cardano.ShelleyLedgerEra era)
        )
     => Cardano.Tx era
     -> (Tx, SealedTx)
 sealShelleyTx tx =
-    --(fst $ fromCardanoTx tx, sealedTxFromCardano'' tx (snd $ fromCardanoTx tx))
-    (fst $ fromCardanoTx tx, sealedTxFromCardano' tx)
+    (fromCardanoTx tx, sealedTxFromCardano' tx)
 
-fromCardanoTx :: Cardano.Tx era -> (Tx, ByteString)
+fromCardanoTx :: Cardano.Tx era -> Tx
 fromCardanoTx tx =
     let (Cardano.ShelleyTx era ledgertx) = tx
     in case era of
-        ShelleyBasedEraShelley -> (getTx $ fromShelleyTx ledgertx, serialize' $ O.mkShelleyTx ledgertx)
-        ShelleyBasedEraAllegra -> (getTx $ fromAllegraTx ledgertx, serialize' $ O.mkShelleyTx ledgertx)
-        ShelleyBasedEraMary    -> (getTx $ fromMaryTx ledgertx, serialize' $ O.mkShelleyTx ledgertx)
-        ShelleyBasedEraAlonzo  -> (getTx $ fromAlonzoTx ledgertx, serialize' $ O.mkShelleyTx ledgertx)
+        ShelleyBasedEraShelley -> getTx $ fromShelleyTx ledgertx
+        ShelleyBasedEraAllegra -> getTx $ fromAllegraTx ledgertx
+        ShelleyBasedEraMary    -> getTx $ fromMaryTx ledgertx
+        ShelleyBasedEraAlonzo  -> getTx $ fromAlonzoTx ledgertx
   where
       getTx (txwal, _, _) = txwal
 

@@ -37,11 +37,11 @@ module Cardano.Wallet.Primitive.Types.Tx
     , SealedTx (serialisedTx, cardanoTx)
     , sealedTxFromBytes
     , sealedTxFromCardano
-    , sealedTxToCardano
     , getSerialisedTxParts
     , unsafeSealedTxFromBytes
     , SerialisedTx (..)
     , SerialisedTxParts (..)
+    , ToCardanoTx (..)
 
     -- * Functions
     , fromTransactionInfo
@@ -449,11 +449,28 @@ sealedTxFromCardano tx = SealedTx tx (cardanoTxToBytes tx)
     cardanoTxToBytes :: InAnyCardanoEra Cardano.Tx -> ByteString
     cardanoTxToBytes (InAnyCardanoEra _era tx') = Cardano.serialiseToCBOR tx'
 
-sealedTxToCardano :: SealedTx -> Cardano.Tx era
-sealedTxToCardano (SealedTx tx _) =
-    let (InAnyCardanoEra _era tx') = tx
-    in tx'
+class ToCardanoTx era where
+    sealedTxToCardano :: SealedTx -> Either DecoderError (Cardano.Tx era)
 
+instance ToCardanoTx Cardano.MaryEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsMaryEra) bs
+
+instance ToCardanoTx Cardano.AllegraEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsAllegraEra) bs
+
+instance ToCardanoTx Cardano.AlonzoEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsAlonzoEra) bs
+
+instance ToCardanoTx Cardano.ShelleyEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsShelleyEra) bs
+
+instance ToCardanoTx Cardano.ByronEra where
+    sealedTxToCardano (SealedTx _ bs) =
+        deserialiseFromCBOR (Cardano.AsTx Cardano.AsByronEra) bs
 
 -- | Deserialise a Cardano transaction. The transaction can be in the format of
 -- any era. This function will try the most recent era first ('MaryEra'), then
@@ -461,6 +478,7 @@ sealedTxToCardano (SealedTx tx _) =
 cardanoTxFromBytes :: ByteString -> Either DecoderError (InAnyCardanoEra Cardano.Tx)
 cardanoTxFromBytes bs = asum
     [ InAnyCardanoEra MaryEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsMaryEra) bs
+    , InAnyCardanoEra AlonzoEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsAlonzoEra) bs
     , InAnyCardanoEra AllegraEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsAllegraEra) bs
     , InAnyCardanoEra ShelleyEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsShelleyEra) bs
     , InAnyCardanoEra ByronEra <$> deserialiseFromCBOR (Cardano.AsTx Cardano.AsByronEra) bs
