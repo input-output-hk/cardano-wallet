@@ -2928,12 +2928,12 @@ components:
       type: object
       required:
         - transaction
-        - mintedBurned
+        - minted_burned
       properties:
         transaction:
           <<: *ApiTransaction
           description: Information about the mint/burn transaction submitted.
-        mintedBurned: 
+        minted_burned:
           type: array
           items: *ApiMintedBurnedInfo
           minItems: 1

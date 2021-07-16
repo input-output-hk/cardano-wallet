@@ -3514,6 +3514,6 @@ instance ToJSON (ApiT ApiMintedBurnedInfo) where
     toJSON = toJSON . getApiT
 
 instance FromJSON (ApiT (Script KeyHash)) where
-    parseJSON = parseJSON
+    parseJSON = fmap ApiT . parseJSON
 instance ToJSON (ApiT (Script KeyHash)) where
-    toJSON = toJSON
+    toJSON = toJSON . getApiT
